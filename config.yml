@@ -1,0 +1,5 @@
+data_file_path: /path/to/the/data/directory
+
+development:
+  production: false
+  file_processing_limit: 25

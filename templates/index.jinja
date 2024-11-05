@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download Statistics</title>
+
+    <script src="../static/js/showTables.js"></script>
+    <script src="../static/js/searchBar.js"></script>
+    <link rel="stylesheet" href="../static/css/style.css">
+</head>
+<body>
+    <h1>Download Statistics</h1>
+
+    <div class="stats">
+        {# <div>Total Downloads: {{downloads['total_downloads']}}</div> #}
+    </div>
+
+    <div class="table-buttons">
+        <button onclick="showTable('allContainer', 10)">Show First 10</button>
+        <button onclick="showTable('allContainer', 100)">Show First 100</button>
+        <button onclick="showTable('allContainer', 500)">Show First 500</button>
+        <button onclick="showTable('allContainer', 'all')">Show All</button>
+    </div>
+
+    <div class="container">
+        <div class="table-container" id="allContainer" style="display: block;">
+            <h2>All Downloads</h2>
+            <input type="text" id="allSearch"
+                onkeyup="searchTable('all')"
+                placeholder="Search All Downloads..."
+            >
+            <table id="allTable">
+                <thead>
+                    <tr>
+                        <th>Title ID</th>
+                        <th>Downloads</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for tid, data in downloads.items() %}
+                        {% if loop.index <= 10 %}
+                            <tr class="first-10">
+                        {% elif loop.index <= 100 %}
+                            <tr class="first-10 first-100">
+                        {% elif loop.index <= 500 %}
+                            <tr class="first-10 first-100 first-500">
+                        {% else %}
+                            <tr>
+                        {% endif %}
+                                <td>{{tid}}</td>
+                                <td>{{data['count']}}</td>
+                            </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</body>
+</html>
