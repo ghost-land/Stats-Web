@@ -17,9 +17,9 @@
     </div>
 
     <div class="table-buttons">
-        <button onclick="showTable('allContainer', 10)">Show First 10</button>
-        <button onclick="showTable('allContainer', 100)">Show First 100</button>
-        <button onclick="showTable('allContainer', 500)">Show First 500</button>
+        <button onclick="showTable('allContainer', 10)">Show Top 10</button>
+        <button onclick="showTable('allContainer', 100)">Show Top 100</button>
+        <button onclick="showTable('allContainer', 500)">Show Top 500</button>
         <button onclick="showTable('allContainer', 'all')">Show All</button>
     </div>
 
@@ -40,13 +40,13 @@
                 <tbody>
                     {% for tid, data in downloads.items() %}
                         {% if loop.index <= 10 %}
-                            <tr class="first-10">
+                            <tr class="top-10">
                         {% elif loop.index <= 100 %}
-                            <tr class="first-10 first-100">
+                            <tr class="top-10 top-100">
                         {% elif loop.index <= 500 %}
-                            <tr class="first-10 first-100 first-500">
+                            <tr class="top-10 top-100 top-500">
                         {% else %}
-                            <tr class="first-10 first-100 first-500 after-500">
+                            <tr class="top-10 top-100 top-500 after-500">
                         {% endif %}
                                 <td>{{tid}}</td>
                                 <td>{{data['count']}}</td>

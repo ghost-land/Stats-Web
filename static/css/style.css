@@ -16,10 +16,10 @@ h1 {
 }
 
 
-.first-10, .first-100 {
+.top-10, .top-100 {
     display: table-row;
 }
-.first-500, .after-500, .hidden-row {
+.top-500, .after-500 {
     display: none;
 }
 

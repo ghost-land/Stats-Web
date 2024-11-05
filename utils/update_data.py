@@ -35,7 +35,8 @@ def get_downloads(limit=None):
                 
             files_processed += 1
 
-    return downloads
+    sorted_games = sorted(downloads.items(), key=lambda item: item[1]["count"], reverse=True)
+    return dict(sorted_games)
 
 
 def fetch_downloads(config=config):

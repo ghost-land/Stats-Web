@@ -16,9 +16,9 @@ function showTable(tableId, limit) {
 
 function limitTableRows(limit) {
     const css = `
-        .first-10 { display: table-row; }
-        .first-100 { display: ${limit === 'all' || limit >= 100 ? 'table-row' : 'none'}; }
-        .first-500 { display: ${limit === 'all' || limit >= 500 ? 'table-row' : 'none'}; }
+        .top-10 { display: table-row; }
+        .top-100 { display: ${limit === 'all' || limit >= 100 ? 'table-row' : 'none'}; }
+        .top-500 { display: ${limit === 'all' || limit >= 500 ? 'table-row' : 'none'}; }
         .after-500 { display: ${limit === 'all' || limit > 500 ? 'table-row' : 'none'}; }
     `;
 
