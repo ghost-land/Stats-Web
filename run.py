@@ -1,6 +1,8 @@
+from utils.get_config import config
 from utils.render import save_rendered_template
 from flask import Flask
 import os
+from waitress import serve
 
 print('Starting Flask app...')
 app = Flask(__name__)
@@ -18,8 +20,11 @@ def home():
 
 if __name__ == '__main__':
     print('Flask app started!')
-    app.run(
-        debug=True,
-        host='0.0.0.0',
-        port=5000
-    )
+    if config['development']['production']:
+        serve(app, host='0.0.0.0', port=5000)
+    else:
+        app.run(
+            debug=True,
+            host='0.0.0.0',
+            port=5000
+        )
