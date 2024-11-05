@@ -1,5 +1,8 @@
 function searchTable(tableId) {
     console.log(tableId);
+    
+    limitTableRows('all');
+
     const input = document.getElementById(`${tableId}Search`).value.toLowerCase();
     const table = document.getElementById(`${tableId}Table`);
     const rows = table.getElementsByTagName('tr');
