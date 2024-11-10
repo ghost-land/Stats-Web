@@ -1,5 +1,5 @@
 from utils.get_config import config
-from utils.render import save_rendered_template
+from utils.render import start_periodic_render
 from flask import Flask
 import os
 from waitress import serve
@@ -9,7 +9,7 @@ app = Flask(__name__)
 
 output_path = 'temp/index.html'
 os.makedirs(os.path.dirname(output_path), exist_ok=True)
-save_rendered_template(app, output_path)
+start_periodic_render(app, output_path, config['interval_hours'])
 
 
 @app.route('/')

@@ -1,4 +1,5 @@
 import time
+import threading
 from flask import render_template
 from .update_data import fetch_downloads
 
@@ -21,3 +22,13 @@ def save_rendered_template(app, output_path):
     
     end_time = time.time()
     log_execution_time(start_time, end_time)
+    
+def start_periodic_render(app, output_path, interval_hours):
+    def periodic_render():
+        while True:
+            save_rendered_template(app, output_path)
+            time.sleep(interval_hours)
+    
+    thread = threading.Thread(target=periodic_render)
+    thread.daemon = True
+    thread.start()
