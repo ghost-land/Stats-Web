@@ -35,7 +35,7 @@
                     <tr>
                         <th>Title ID</th>
                         <th>Name</th>
-                        <th>Type</th>
+                        {# <th>Type</th> #}
                         {# <th>Size (bytes)</th> #}
                         <th>Downloads</th>
                     </tr>
@@ -53,7 +53,7 @@
                         {% endif %}
                                 <td>{{tid}}</td>
                                 <td>{{data['infos']['name']}}</td>
-                                <td>{%if 'name' in data['infos']%} base {%else%} ? {%endif%}</td>
+                                {# <td>{%if 'name' in data['infos']%} base {%else%} ? {%endif%}</td> #}
                                 {# <td>{%if 'size' in data['infos']%} {{data['infos']['size']}} {%else%} ? {%endif%}</td> #}
                                 <td>{{data['count']}}</td>
                             </tr>
