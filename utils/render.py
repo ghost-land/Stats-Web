@@ -27,7 +27,7 @@ def start_periodic_render(app, output_path, interval_hours):
     def periodic_render():
         while True:
             save_rendered_template(app, output_path)
-            time.sleep(interval_hours)
+            time.sleep(interval_hours * 3600)
     
     thread = threading.Thread(target=periodic_render)
     thread.daemon = True
