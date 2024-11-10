@@ -16,7 +16,7 @@ def save_rendered_template(app, output_path):
             'index.jinja',
             downloads=fetch_downloads(),
         )
-        with open(output_path, 'w') as file:
+        with open(output_path, 'w', encoding="utf-8") as file:
             file.write(rendered_content)
     
     end_time = time.time()
