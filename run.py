@@ -14,7 +14,7 @@ save_rendered_template(app, output_path)
 
 @app.route('/')
 def home():
-    with open('temp/index.html', 'r') as file:
+    with open('temp/index.html', 'r', encoding='utf-8') as file:
         return file.read()
 
 
