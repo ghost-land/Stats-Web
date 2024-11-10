@@ -107,6 +107,7 @@ def get_downloads(limit=None):
 
     # Calculate total downloads
     total_downloads = sum(item["count"] for item in downloads.values() if "count" in item)
+    total_downloads = f"{total_downloads:,}"
 
     sorted_games = sorted(downloads.items(), key=lambda item: item[1]["count"], reverse=True)
     return dict(sorted_games), total_downloads
