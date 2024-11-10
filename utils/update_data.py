@@ -98,11 +98,13 @@ def get_downloads(limit=None):
                     downloads[key] = {}
                 downloads[key]["per_data"] = data.get("per_date", {})
                 
-                
             files_processed += 1
 
+    # Calculate total downloads
+    total_downloads = sum(item["count"] for item in downloads.values() if "count" in item)
+
     sorted_games = sorted(downloads.items(), key=lambda item: item[1]["count"], reverse=True)
-    return dict(sorted_games)
+    return dict(sorted_games), total_downloads
 
 
 def fetch_downloads(config=config):

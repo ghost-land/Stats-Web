@@ -12,10 +12,12 @@ def log_execution_time(start_time, end_time):
 def save_rendered_template(app, output_path):
     start_time = time.time()
     
+    downloads, total_downloads = fetch_downloads()
     with app.app_context():
         rendered_content = render_template(
             'index.jinja',
-            downloads=fetch_downloads(),
+            downloads=downloads,
+            total_downloads=total_downloads,
         )
         with open(output_path, 'w', encoding="utf-8") as file:
             file.write(rendered_content)
