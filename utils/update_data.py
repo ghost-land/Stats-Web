@@ -15,7 +15,12 @@ def init_nlib():
     if os.path.isfile(nlib_path):
         file_mod_time = datetime.fromtimestamp(os.path.getmtime(nlib_path))
         if datetime.now() - file_mod_time < timedelta(weeks=1):
-            update_needed = False
+            try:
+                with open(nlib_path, 'r', encoding="utf-8") as file:
+                    json.load(file)
+                update_needed = False
+            except json.JSONDecodeError:
+                tqdm.write("[ERROR] nlib.json is corrupted, re-downloading...")
 
     if update_needed:
         url = 'https://api.nlib.cc/nx/all'
