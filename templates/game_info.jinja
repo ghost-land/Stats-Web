@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download Statistics</title>
+
+    <link rel="stylesheet" href="../static/css/style.css">
+    <link rel="stylesheet" href="../static/css/game_info.css">
+    <link rel="stylesheet" href="../static/css/header.css">
+</head>
+<body>
+    <header>
+        <nav>
+            <div class="logo">
+                <h1>{{tid}} - Download Statistics</h1>
+            </div>
+            <ul>
+                <li><a href="/">Home</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div>
+            <div id="game-icon" class="box">
+                <img src="https://api.nlib.cc/nx/{{tid}}/icon/512/512" alt="game icon">
+            </div>
+    
+            <div id="total-downloads" class="box">
+                Game Name: <span>{{GAME_NAME}}</span>
+            </div>
+
+            <div id="total-downloads" class="box">
+                Total Downloads: <span>{{downloads['total_downloads']}}</span>
+                <br>
+                <br>
+                {% for titleid, tid_downloads in downloads['tid_downloads'].items() %}
+                    {{titleid}}: {{tid_downloads}}
+                {% endfor %}
+            </div>
+        </div>
+        
+        <div id="downloads-per-date" class="box">
+            <table>
+                <tr>
+                    <th>Date (YYYY-MM-DD)</th>
+                    <th>Downloads</th>
+                </tr>
+                {% for date, count in downloads['per_date'].items() %}
+                    <tr>
+                        <td>{{date}}</td>
+                        <td>{{count}}</td>
+                    </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+</body>
