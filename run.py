@@ -38,6 +38,7 @@ def game_info(tid: str):
         print(f'Error fetching game info: {str(e)}')
     if not game_info:
         game_info = {'name': 'Error'}
+    game_info['base_tid'] = game_info.get('base_tid', tid)
     
     with open(path, 'r', encoding='utf-8') as file:
         data = json.load(file)
