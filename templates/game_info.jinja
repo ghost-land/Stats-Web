@@ -54,19 +54,52 @@
             </div>
         </div>
         
-        <div id="downloads-per-date" class="box">
-            <table>
-                <tr>
-                    <th>Date (YYYY-MM-DD)</th>
-                    <th>Downloads</th>
-                </tr>
-                {% for date, count in downloads['per_date'].items() %}
+        <div id="total-download">
+            <div id="downloads-per-date-graph" class="box">
+                <canvas id="downloadsChart"></canvas>
+                <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+                <script>
+                    const dates = [{% for date, count in downloads['per_date'].items() %}'{{date}}',{% endfor %}];
+                    const counts = [{% for date, count in downloads['per_date'].items() %}{{count}},{% endfor %}];
+                    
+                    const ctx = document.getElementById('downloadsChart').getContext('2d');
+                    new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: dates,
+                            datasets: [{
+                                label: 'Downloads per Day',
+                                data: counts,
+                                borderColor: '#4CAF50',
+                                tension: 0.1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            scales: {
+                                y: {
+                                    beginAtZero: true
+                                }
+                            }
+                        }
+                    });
+                </script>
+            </div>
+    
+            <div id="downloads-per-date" class="box">
+                <table>
                     <tr>
-                        <td>{{date}}</td>
-                        <td>{{count}}</td>
+                        <th>Date (YYYY-MM-DD)</th>
+                        <th>Downloads</th>
                     </tr>
-                {% endfor %}
-            </table>
+                    {% for date, count in downloads['per_date'].items() %}
+                        <tr>
+                            <td>{{date}}</td>
+                            <td>{{count}}</td>
+                        </tr>
+                    {% endfor %}
+                </table>
+            </div>
         </div>
     </div>
 </body>
