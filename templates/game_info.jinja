@@ -45,6 +45,13 @@
                     {{titleid}}: {{tid_downloads}}
                 {% endfor %}
             </div>
+
+            <div id="other-title-infos" class="box">
+                <details>
+                    <summary>Additional Title Info</summary>
+                    <pre>{{game_info | tojson(indent=4)}}</pre>
+                </details>
+            </div>
         </div>
         
         <div id="downloads-per-date" class="box">
