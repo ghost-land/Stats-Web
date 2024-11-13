@@ -35,3 +35,10 @@ div.box {
     min-height: 200px;
     overflow: hidden;
 }
+
+pre {
+    max-height: 300px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
