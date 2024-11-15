@@ -19,6 +19,12 @@ def home():
     with open('temp/index.html', 'r', encoding='utf-8') as file:
         return file.read()
     
+@app.route('/<tid>/json')
+def game_json(tid: str):
+    data_dir = config.get('data_file_path', 'data')
+    with open(os.path.join(data_dir, f'{tid}_downloads.json'), 'r', encoding="utf-8") as file:
+        return json.load(file)
+    
 @app.route('/<tid>')
 def game_info(tid: str):
     tid = tid.upper()
