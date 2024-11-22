@@ -1,7 +1,0 @@
-data_file_path: /path/to/the/data/directory
-interval_hours: 1
-
-development:
-  production: false
-  port: 80
-  file_processing_limit: 25
