@@ -11,11 +11,16 @@ interface PaginationProps {
 }
 
 export function Pagination({ currentPage, totalPages, period }: PaginationProps) {
-  const pathname = usePathname();
+  const pathname = usePathname() || '';
   const searchParams = useSearchParams();
 
   const createPageURL = (pageNumber: number | string) => {
-    const params = new URLSearchParams(searchParams);
+    const params = new URLSearchParams();
+    if (searchParams) {
+      searchParams.forEach((value, key) => {
+        params.set(key, value);
+      });
+    }
     params.set('page', pageNumber.toString());
     return `${pathname}?${params.toString()}`;
   };

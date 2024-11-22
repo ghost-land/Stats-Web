@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { ChevronRight, Download, Star, Calendar, HardDrive, Tag } from 'lucide-react';
+import { ChevronRight, Download, Star, Calendar, HardDrive, Tag, TrendingUp, TrendingDown } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { useState, useEffect } from 'react';
 import type { Game } from '@/lib/types';
@@ -12,9 +12,28 @@ interface GameCardProps {
   game: Game;
   rank: number;
   period?: '72h' | '7d' | '30d' | 'all';
+  rankChange?: number;
 }
 
-export function GameCard({ game, rank, period = 'all' }: GameCardProps) {
+const RankTrendBadge = ({ change, period }: { change?: number, period?: string }) => {
+  if (change === undefined || period === 'all') return null;
+
+  const Icon = change > 0 ? TrendingUp : change < 0 ? TrendingDown : ChevronRight;
+  const baseClasses = 'inline-flex items-center justify-center w-6 h-6 rounded-full absolute top-2 right-2 z-10';
+  const colorClasses = change > 0 
+    ? 'bg-emerald-500 text-white'
+    : change < 0 
+    ? 'bg-rose-500 text-white'
+    : 'bg-slate-500 text-white';
+
+  return (
+    <span className={`${baseClasses} ${colorClasses}`}>
+      <Icon className="w-4 h-4" />
+    </span>
+  );
+};
+
+export function GameCard({ game, rank, period = 'all', rankChange }: GameCardProps) {
   const [mounted, setMounted] = useState(false);
   const [bannerError, setBannerError] = useState(false);
   const [iconError, setIconError] = useState(false);
@@ -45,6 +64,9 @@ export function GameCard({ game, rank, period = 'all' }: GameCardProps) {
   return (
     <Link href={`/${game.tid}`}>
       <Card className="group relative overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl will-change-transform h-full bg-gradient-to-br from-white to-white/95 dark:from-slate-900 dark:to-slate-900/95">
+        {/* Rank Trend Badge */}
+        <RankTrendBadge change={rankChange} period={period} />
+
         {/* Banner Image */}
         <div className="relative aspect-video w-full overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-br from-slate-200 to-slate-100 dark:from-slate-800 dark:to-slate-900">

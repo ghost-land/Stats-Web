@@ -1,8 +1,10 @@
 import { Card } from '@/components/ui/card';
 import { DownloadChart } from '@/components/download-chart';
-import { Clock, Download, History } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowRight, TrendingDown, TrendingUp, Clock, Download, History, ChevronRight } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
 import type { Game } from '@/lib/types';
+import { getGameRankings } from '@/lib/api';
+import { cn } from '@/lib/utils';
 
 interface PeriodStats {
   period: '72h' | '7d' | '30d';
@@ -10,13 +12,37 @@ interface PeriodStats {
   label: string;
   gradient: string;
   downloads: number;
+  rank?: {
+    current: number | null;
+    previous: number | null;
+    change: number | null;
+  };
   comparison?: {
     value: number;
     label: string;
   };
 }
 
-export function GameStats({ game }: { game: Game }) {
+const RankBadge = ({ change }: { change: number | null }) => {
+  if (change === null) return null;
+
+  const Icon = change > 0 ? TrendingUp : change < 0 ? TrendingDown : ChevronRight;
+  const baseClasses = 'inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium rounded border ml-2';
+  const colorClasses = change > 0 
+    ? 'bg-emerald-500 text-white border-emerald-500'
+    : change < 0 
+    ? 'bg-rose-500 text-white border-rose-500'
+    : 'bg-slate-500 text-white border-slate-500';
+
+  return (
+    <span className={`${baseClasses} ${colorClasses}`}>
+      <Icon className="w-3 h-3" />
+      {change > 0 ? `+${change}` : change < 0 ? `${change}` : '='}
+    </span>
+  );
+};
+
+export async function GameStats({ game }: { game: Game }) {
   if (!game?.stats) {
     return (
       <EmptyState 
@@ -37,6 +63,9 @@ export function GameStats({ game }: { game: Game }) {
   const last7d = calculatePeriodDownloads(7);
   const last30d = calculatePeriodDownloads(30);
 
+  // Get rankings for all periods
+  const rankings = await getGameRankings(game.tid);
+
   const periods: PeriodStats[] = [
     {
       period: '72h',
@@ -44,6 +73,7 @@ export function GameStats({ game }: { game: Game }) {
       label: 'Last 72 Hours',
       gradient: 'from-indigo-500 to-indigo-600',
       downloads: last72h,
+      rank: rankings?.['72h'],
       comparison: {
         value: (last72h / last7d) * 100,
         label: 'vs last week'
@@ -55,6 +85,7 @@ export function GameStats({ game }: { game: Game }) {
       label: 'Last 7 Days',
       gradient: 'from-violet-500 to-violet-600',
       downloads: last7d,
+      rank: rankings?.['7d'],
       comparison: {
         value: (last7d / last30d) * 100,
         label: 'vs last month'
@@ -66,6 +97,7 @@ export function GameStats({ game }: { game: Game }) {
       label: 'Last 30 Days',
       gradient: 'from-purple-500 to-purple-600',
       downloads: last30d,
+      rank: rankings?.['30d'],
       comparison: {
         value: last30d / 30,
         label: 'daily average'
@@ -77,7 +109,7 @@ export function GameStats({ game }: { game: Game }) {
     <div className="space-y-6">
       {/* Period Stats */}
       <div className="grid gap-6 md:grid-cols-3">
-        {periods.map(({ period, icon: Icon, label, gradient, downloads, comparison }) => (
+        {periods.map(({ period, icon: Icon, label, gradient, downloads, rank, comparison }) => (
           <div 
             key={period}
             className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-indigo-500/20 to-indigo-600/20 p-[1px]"
@@ -89,9 +121,19 @@ export function GameStats({ game }: { game: Game }) {
                   <h3 className="text-sm font-medium opacity-90">{label}</h3>
                   <Icon className="w-4 h-4 opacity-75" />
                 </div>
-                <p className="mt-4 text-3xl font-bold text-white">
-                  {downloads.toLocaleString()}
-                </p>
+                <div className="mt-4">
+                  <p className="text-xl font-semibold text-white">
+                    {downloads.toLocaleString()}
+                  </p>
+                  {rank && rank.current !== null && rank.current > 0 && (
+                    <p className="mt-1 text-sm text-white/90 flex items-center">
+                      Rank: #{rank.current}
+                      {rank.change !== null && rank.change !== undefined && (
+                        <RankBadge change={rank.change} />
+                      )}
+                    </p>
+                  )}
+                </div>
                 {comparison && (
                   <p className="mt-2 text-xs text-white/75">
                     {comparison.value.toFixed(1).replace(/\.0$/, '')}

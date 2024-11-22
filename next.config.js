@@ -1,8 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  staticPageGenerationTimeout: 180,
   images: {
     domains: ['api.nlib.cc'],
     minimumCacheTTL: 60,
+    unoptimized: true,
   },
   experimental: {
     serverActions: {
