@@ -2,6 +2,8 @@
 
 A modern web application for tracking and analyzing game download statistics for NX Server.
 
+https://github.com/user-attachments/assets/0cd9f3c3-e986-46ec-a2af-36aff6a3c1ab
+
 ## ✨ Features
 
 - 📈 Real-time download statistics tracking
