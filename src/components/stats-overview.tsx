@@ -1,9 +1,13 @@
-import { Suspense } from 'react';
+import { Suspense, use } from 'react';
 import { getGlobalStats } from '@/lib/api';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/empty-state';
 import { Clock, Download, History, TrendingUp } from 'lucide-react';
 import pkg from '../../package.json';
+import { Skeleton } from '@/components/ui/skeleton';
+
+// Précharger les stats
+const statsPromise = getGlobalStats();
 
 function StatCard({
   title,
@@ -43,7 +47,8 @@ function StatCard({
 }
 
 async function StatsContent() {
-  const stats = await getGlobalStats();
+  // Utiliser les stats préchargées
+  const stats = use(statsPromise);
 
   if (!stats || !stats.last_updated) {
     return <EmptyState />;

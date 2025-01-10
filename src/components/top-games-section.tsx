@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/empty-state';
 import { Clock, Download, History, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
+import type { Game } from '@/lib/types';
 
 const periodConfig = {
   '72h': {
@@ -44,9 +45,16 @@ const periodConfig = {
   },
 } as const;
 
-export async function TopGamesSection({ period }: { period: keyof typeof periodConfig }) {
+export async function TopGamesSection({ 
+  period,
+  initialData
+}: { 
+  period: keyof typeof periodConfig,
+  initialData?: Game[]
+}) {
   try {
-    const games = await getTopGames(period);
+    // Utiliser les données préchargées si disponibles
+    const games = initialData || await getTopGames(period);
     const { title, icon: Icon, gradient } = periodConfig[period];
 
     if (!games || games.length === 0) {

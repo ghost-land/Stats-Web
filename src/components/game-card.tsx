@@ -94,11 +94,12 @@ export function GameCard({ game, rank, period = 'all', rankChange }: GameCardPro
                 src={`https://api.nlib.cc/nx/${imageTid}/banner/1920/1080`}
                 alt={gameName}
                 fill
-                className="object-cover transition-transform duration-300 group-hover:scale-105"
+                className="object-cover transition-transform duration-300 group-hover:scale-105 blur-up"
                 priority={rank <= 3}
-                sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                loading={rank <= 6 ? 'eager' : 'lazy'}
+                quality={rank <= 3 ? 85 : 75}
                 onError={() => setBannerError(true)}
-                unoptimized
               />
             ) : (
               <div className="absolute inset-0 flex items-center justify-center">
@@ -137,8 +138,9 @@ export function GameCard({ game, rank, period = 'all', rankChange }: GameCardPro
                   width={80}
                   height={80}
                   className="object-cover"
+                  loading={rank <= 6 ? 'eager' : 'lazy'}
+                  quality={rank <= 3 ? 85 : 75}
                   onError={() => setIconError(true)}
-                  unoptimized
                 />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center">

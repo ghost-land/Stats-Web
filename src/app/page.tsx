@@ -1,8 +1,9 @@
 import { Suspense } from 'react';
-import { TopGamesSection } from '@/components/top-games-section';
-import { StatsOverview } from '@/components/stats-overview';
+import { getTopGames } from '@/lib/api';
 import { SearchBar } from '@/components/search-bar';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { StatsOverview } from '@/components/stats-overview';
+import { TopGamesSection } from '@/components/top-games-section';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0; // Disable cache completely

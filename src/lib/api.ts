@@ -1,15 +1,21 @@
 import { cache } from 'react';
 import type { Game } from './types';
 
+const CACHE_DURATION = 3600; // 1 hour in seconds
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+
+// Cache options for fetch requests
+const cacheOptions = {
+  next: { 
+    revalidate: CACHE_DURATION,
+    tags: ['games']
+  }
+};
 
 // Get global statistics
 export const getGlobalStats = cache(async () => {
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/stats`, {
-      cache: 'no-store',
-      next: { revalidate: 0 }
-    });
+    const response = await fetch(`${API_BASE}/api/stats`, cacheOptions);
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -39,10 +45,7 @@ export const getGlobalStats = cache(async () => {
 // Get top games for a specific period
 export const getTopGames = cache(async (period: '72h' | '7d' | '30d' | 'all', showAll = false) => {
   try {
-    const response = await fetch(`${API_BASE}/api/top/${period}`, {
-      cache: 'no-store',
-      next: { revalidate: 0 }
-    });
+    const response = await fetch(`${API_BASE}/api/top/${period}`, cacheOptions);
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
