@@ -9,7 +9,8 @@ import type { Game } from '@/lib/types';
 import { Pagination } from '@/components/pagination';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 3600;
+export const fetchCache = 'force-no-store';
+export const revalidate = false;
 
 const GAMES_PER_PAGE = 24;
 

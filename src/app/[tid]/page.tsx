@@ -9,7 +9,8 @@ import { getBaseGameTid } from '@/lib/utils';
 import { IMAGE_SIZES } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 3600;
+export const fetchCache = 'force-no-store';
+export const revalidate = false;
 
 type Props = {
   params: { tid: string }

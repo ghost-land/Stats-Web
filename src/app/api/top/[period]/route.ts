@@ -18,7 +18,7 @@ function getPeriodCondition(period: Period): string {
 }
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 3600; // Revalidate every hour
+export const revalidate = 0;
 
 export async function GET(
   request: Request,
@@ -42,10 +42,10 @@ export async function GET(
       ? `
         SELECT 
           g.*,
-          COALESCE(json_group_object(
+          json_group_object(
             date,
-            CAST(d.count AS TEXT)
-          ) FILTER (WHERE date >= date('now', '-30 days')), '{}') as per_date,
+            d.count
+          ) as per_date,
           g.total_downloads as period_downloads
         FROM games g
         LEFT JOIN downloads d ON g.tid = d.tid
@@ -58,67 +58,46 @@ export async function GET(
           SELECT 
             tid,
             SUM(count) as period_total
-          FROM downloads d
-          WHERE ${getPeriodCondition(period)}
+          FROM downloads
+          WHERE ${getPeriodCondition(period)} 
           GROUP BY tid
         )
         SELECT 
           g.*,
-          COALESCE(json_group_object(
+          json_group_object(
             date,
-            CAST(d.count AS TEXT)
-          ) FILTER (WHERE date >= date('now', '-30 days')), '{}') as per_date,
+            d.count
+          ) as per_date,
           COALESCE(pd.period_total, 0) as period_downloads
         FROM games g
         LEFT JOIN downloads d ON g.tid = d.tid
         LEFT JOIN period_downloads pd ON g.tid = pd.tid
         WHERE g.is_base = 1
         GROUP BY g.tid
-        ORDER BY period_downloads DESC
+        ORDER BY COALESCE(pd.period_total, 0) DESC
       `;
     
     const games = db.prepare(query).all();
 
     // Convert database rows to Game objects
-    const formattedGames = games.map((row: unknown) => {
-      // Type guard to ensure row has required properties
-      if (!row || typeof row !== 'object') {
-        return null;
+    const formattedGames = games.map(row => ({
+      tid: row.tid,
+      is_base: Boolean(row.is_base),
+      is_update: Boolean(row.is_update),
+      is_dlc: Boolean(row.is_dlc),
+      base_tid: row.base_tid || null,
+      stats: {
+        per_date: row.per_date ? JSON.parse(row.per_date) : {},
+        total_downloads: Number(row.period_downloads || 0),
+        tid_downloads: {}
+      },
+      info: {
+        name: row.name,
+        version: row.version,
+        size: Number(row.size || 0),
+        releaseDate: row.release_date
       }
-
-      const typedRow = row as {
-        tid: string;
-        is_base: number;
-        is_update: number;
-        is_dlc: number;
-        base_tid: string | null;
-        name: string | null;
-        version: string | null;
-        size: number | null;
-        release_date: string | null;
-        total_downloads: number;
-        per_date: string;
-      };
-
-      return {
-        tid: typedRow.tid,
-        is_base: Boolean(typedRow.is_base),
-        is_update: Boolean(typedRow.is_update),
-        is_dlc: Boolean(typedRow.is_dlc),
-        base_tid: typedRow.base_tid || null,
-        stats: {
-          per_date: JSON.parse(typedRow.per_date.replace(/\\/g, '')),
-          total_downloads: Number(typedRow.total_downloads || 0),
-          tid_downloads: {}
-        },
-        info: {
-          name: typedRow.name,
-          version: typedRow.version,
-          size: Number(typedRow.size || 0),
-          releaseDate: typedRow.release_date
-        }
-      };
-    }).filter(game => game !== null);
+    }));
 
     return NextResponse.json(formattedGames);
   } catch (error) {

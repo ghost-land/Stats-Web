@@ -3,6 +3,7 @@ import { GameCard } from '@/components/game-card';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/empty-state';
 import { Clock, Download, History, ArrowRight } from 'lucide-react';
+import { getGamesRankings } from '@/lib/api';
 import Link from 'next/link';
 import type { Game } from '@/lib/types';
 
@@ -57,6 +58,13 @@ export async function TopGamesSection({
     const games = initialData || await getTopGames(period);
     const { title, icon: Icon, gradient } = periodConfig[period];
 
+    // Get rankings for all displayed games at once
+    const rankings = period === 'all' ? new Map() : 
+      await getGamesRankings(
+        games.slice(0, 12).map(game => game.tid),
+        period
+      );
+
     if (!games || games.length === 0) {
       return (
         <EmptyState 
@@ -92,14 +100,22 @@ export async function TopGamesSection({
           
           <div className="relative p-8">
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-8">
-              {displayGames.map((game, index) => (
-                <GameCard 
-                  key={game.tid} 
-                  game={game} 
-                  rank={index + 1}
-                  period={period}
-                />
-              ))}
+              {displayGames.map((game, index) => {
+                const ranking = rankings.get(game.tid);
+                const rankChange = period === 'all' ? undefined : (
+                  ranking ? ranking.change : 0
+                );
+
+                return (
+                  <GameCard 
+                    key={game.tid} 
+                    game={game} 
+                    rank={index + 1}
+                    period={period}
+                    rankChange={rankChange}
+                  />
+                );
+              })}
             </div>
           </div>
         </Card>

@@ -6,10 +6,8 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 // Cache options for fetch requests
 const cacheOptions = {
-  next: { 
-    revalidate: CACHE_DURATION,
-    tags: ['games']
-  }
+  cache: 'no-store',
+  next: { revalidate: 0 }
 };
 
 // Get global statistics
@@ -21,7 +19,6 @@ export const getGlobalStats = cache(async () => {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     
-    return await response.json();
     const data = await response.json();
     return {
       last_72h: Number(data.last_72h || 0),

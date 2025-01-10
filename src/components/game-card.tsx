@@ -39,6 +39,7 @@ export function GameCard({ game, rank, period = 'all', rankChange }: GameCardPro
   const [iconError, setIconError] = useState(false);
   const [showBaseGame, setShowBaseGame] = useState(false);
 
+  // Get downloads for the specific period
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -56,6 +57,12 @@ export function GameCard({ game, rank, period = 'all', rankChange }: GameCardPro
   if (!mounted || !game) return null;
 
   const getPeriodDownloads = () => {
+    if (period === 'all') {
+      return game.stats.total_downloads;
+    } else if (game.stats.period_downloads) {
+      return game.stats.period_downloads[`last_${period}`] || 0;
+    }
+    // Fallback to calculating from per_date if period_downloads not available
     if (!game.stats?.per_date) return 0;
     const dates = Object.entries(game.stats.per_date).sort((a, b) => a[0].localeCompare(b[0]));
     const days = period === '72h' ? 3 : period === '7d' ? 7 : period === '30d' ? 30 : dates.length;

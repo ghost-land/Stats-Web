@@ -3,13 +3,15 @@ import { getTopGames } from '@/lib/api';
 import { GameCard } from '@/components/game-card';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/empty-state';
+import { getGamesRankings } from '@/lib/api';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Pagination } from '@/components/pagination';
 import { notFound } from 'next/navigation';
 import { Metadata } from 'next';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 3600; // Revalidate every hour
+export const fetchCache = 'force-no-store';
+export const revalidate = false;
 
 const GAMES_PER_PAGE = 24;
 
@@ -77,6 +79,13 @@ export default async function TopGamesPage({
     // Get games for the period
     const games = await getTopGames(period, true);
     
+    // Get rankings for all displayed games at once
+    const rankings = period === 'all' ? new Map() : 
+      await getGamesRankings(
+        games.map(game => game.tid),
+        period
+      );
+    
     if (!games || games.length === 0) {
       return (
         <EmptyState 
@@ -112,6 +121,10 @@ export default async function TopGamesPage({
                 {displayGames.map((game, index) => {
                   const globalIndex = startIndex + index;
                   const currentRank = globalIndex + 1;
+                  const ranking = rankings.get(game.tid);
+                  const rankChange = period === 'all' ? undefined : (
+                    ranking ? ranking.change : 0
+                  );
 
                   return (
                     <Suspense key={game.tid} fallback={<LoadingSpinner />}>
@@ -119,6 +132,7 @@ export default async function TopGamesPage({
                         game={game} 
                         rank={currentRank}
                         period={period}
+                        rankChange={rankChange}
                       />
                     </Suspense>
                   );

@@ -6,7 +6,8 @@ import { StatsOverview } from '@/components/stats-overview';
 import { TopGamesSection } from '@/components/top-games-section';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 0; // Disable cache completely
+export const fetchCache = 'force-no-store';
+export const revalidate = false;
 
 export default function Home() {
   return (
