@@ -17,6 +17,21 @@ function getPeriodCondition(period: Period): string {
   }
 }
 
+interface DbGame {
+  tid: string;
+  name: string | null;
+  version: string | null;
+  size: number | null;
+  release_date: string | null;
+  is_base: number;
+  is_update: number;
+  is_dlc: number;
+  base_tid: string | null;
+  total_downloads: number;
+  per_date: string;
+  period_downloads: number;
+}
+
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
@@ -37,7 +52,7 @@ export async function GET(
       throw new Error('Database connection failed');
     }
 
-    // Get top games for the period
+    // Get top games for the period with proper typing
     const query = period === 'all' 
       ? `
         SELECT 
@@ -77,10 +92,10 @@ export async function GET(
         ORDER BY COALESCE(pd.period_total, 0) DESC
       `;
     
-    const games = db.prepare(query).all();
+    const games = db.prepare(query).all() as DbGame[];
 
     // Convert database rows to Game objects
-    const formattedGames = games.map(row => ({
+    const formattedGames = games.map((row: any) => ({
       tid: row.tid,
       is_base: Boolean(row.is_base),
       is_update: Boolean(row.is_update),

@@ -7,10 +7,12 @@ import { notFound } from 'next/navigation';
 import { Metadata, ResolvingMetadata } from 'next';
 import { getBaseGameTid } from '@/lib/utils';
 import { IMAGE_SIZES } from '@/lib/constants';
+import { getDbLastModified } from '@/lib/db';
 
+// Generate static pages with ISR
+export const revalidate = 60; // Revalidate every minute
+// Force dynamic rendering for game details
 export const dynamic = 'force-dynamic';
-export const fetchCache = 'force-no-store';
-export const revalidate = false;
 
 type Props = {
   params: { tid: string }

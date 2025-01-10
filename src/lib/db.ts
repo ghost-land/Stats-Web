@@ -2,20 +2,21 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 
+// Get database last modified time
+export function getDbLastModified(): number {
+  try {
+    const stats = fs.statSync(DB_PATH);
+    return stats.mtimeMs;
+  } catch (error) {
+    console.error('Error getting DB last modified time:', error);
+    return 0;
+  }
+}
 let db: Database.Database | null = null;
 let lastDbCheck = 0;
 const DB_CHECK_INTERVAL = 60000; // Vérifier toutes les minutes
 
 const DB_PATH = path.join(process.cwd(), 'public', 'games.db');
-
-export function clearDatabaseCache() {
-  if (db) {
-    console.log('[DB] Clearing database cache...');
-    db.close();
-    db = null;
-    lastDbCheck = 0;
-  }
-}
 
 export async function getDatabase() {
   const now = Date.now();

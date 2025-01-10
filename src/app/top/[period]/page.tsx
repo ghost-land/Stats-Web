@@ -7,11 +7,11 @@ import { getGamesRankings } from '@/lib/api';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Pagination } from '@/components/pagination';
 import { notFound } from 'next/navigation';
+import { getDbLastModified } from '@/lib/db';
 import { Metadata } from 'next';
 
+// Force dynamic rendering for top games
 export const dynamic = 'force-dynamic';
-export const fetchCache = 'force-no-store';
-export const revalidate = false;
 
 const GAMES_PER_PAGE = 24;
 

@@ -4,10 +4,13 @@ import { SearchBar } from '@/components/search-bar';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { StatsOverview } from '@/components/stats-overview';
 import { TopGamesSection } from '@/components/top-games-section';
+import { getDbLastModified } from '@/lib/db';
 
+// Generate static page with ISR
+
+// Force dynamic rendering
+// Force dynamic rendering for homepage
 export const dynamic = 'force-dynamic';
-export const fetchCache = 'force-no-store';
-export const revalidate = false;
 
 export default function Home() {
   return (

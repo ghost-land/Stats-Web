@@ -2,36 +2,44 @@ import { Inter } from 'next/font/google';
 import { ThemeProvider } from '@/components/theme-provider';
 import { Navigation } from '@/components/navigation';
 import '@/styles/globals.css';
+import { getDbLastModified } from '@/lib/db';
 
 const inter = Inter({ subsets: ['latin'] });
 
-export const metadata = {
-  title: 'Game Stats',
-  description: 'Track and analyze game download statistics',
-  icons: {
-    icon: [
-      { url: '/favicon.png', type: 'image/png' }
-    ],
-    shortcut: [
-      { url: '/favicon.png', type: 'image/png' }
-    ],
-    apple: [
-      { url: '/favicon.png', type: 'image/png' }
-    ]
-  },
-  openGraph: {
-    type: 'website',
+export const revalidate = 60; // Revalidate layout every minute
+
+const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+
+export async function generateMetadata() {
+  return {
+    metadataBase: new URL(baseUrl),
     title: 'Game Stats',
     description: 'Track and analyze game download statistics',
-    images: ['/favicon.png'],
-  },
-  twitter: {
-    card: 'summary',
-    title: 'Game Stats',
-    description: 'Track and analyze game download statistics',
-    images: ['/favicon.png'],
-  },
-};
+    icons: {
+      icon: [
+        { url: '/favicon.png', type: 'image/png' }
+      ],
+      shortcut: [
+        { url: '/favicon.png', type: 'image/png' }
+      ],
+      apple: [
+        { url: '/favicon.png', type: 'image/png' }
+      ]
+    },
+    openGraph: {
+      type: 'website',
+      title: 'Game Stats',
+      description: 'Track and analyze game download statistics',
+      images: ['/favicon.png'],
+    },
+    twitter: {
+      card: 'summary',
+      title: 'Game Stats',
+      description: 'Track and analyze game download statistics',
+      images: ['/favicon.png'],
+    },
+  };
+}
 
 export default function RootLayout({
   children,

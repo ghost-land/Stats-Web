@@ -1,32 +1,27 @@
 import { cache } from 'react';
-import type { Game } from './types';
-
-const CACHE_DURATION = 3600; // 1 hour in seconds
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-
-// Cache options for fetch requests
-const cacheOptions = {
-  cache: 'no-store',
-  next: { revalidate: 0 }
-};
+import type { Game, GlobalStats, DbGame } from './types';
+import { getDatabase } from './db';
 
 // Get global statistics
 export const getGlobalStats = cache(async () => {
   try {
-    const response = await fetch(`${API_BASE}/api/stats`, cacheOptions);
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    const db = await getDatabase();
+    if (!db) {
+      throw new Error('Database connection failed');
     }
     
-    const data = await response.json();
+    const stats = db.prepare('SELECT * FROM global_stats WHERE id = 1').get() as GlobalStats;
+    if (!stats) {
+      throw new Error('Global stats not found');
+    }
+    
     return {
-      last_72h: Number(data.last_72h || 0),
-      last_7d: Number(data.last_7d || 0),
-      last_30d: Number(data.last_30d || 0),
-      all_time: Number(data.all_time || 0),
-      last_updated: data.last_updated
-    };
+      last_72h: Number(stats.last_72h || 0),
+      last_7d: Number(stats.last_7d || 0),
+      last_30d: Number(stats.last_30d || 0),
+      all_time: Number(stats.all_time || 0),
+      last_updated: stats.last_updated || null
+    } satisfies GlobalStats;
   } catch (error) {
     console.error('Error fetching global stats:', error);
     return {
@@ -35,21 +30,76 @@ export const getGlobalStats = cache(async () => {
       last_30d: 0,
       all_time: 0,
       last_updated: null
-    };
+    } satisfies GlobalStats;
   }
 });
 
 // Get top games for a specific period
-export const getTopGames = cache(async (period: '72h' | '7d' | '30d' | 'all', showAll = false) => {
+export const getTopGames = cache(async (period: '72h' | '7d' | '30d' | 'all', showAll = false): Promise<Game[]> => {
   try {
-    const response = await fetch(`${API_BASE}/api/top/${period}`, cacheOptions);
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    const db = await getDatabase();
+    if (!db) {
+      throw new Error('Database connection failed');
     }
     
-    const games = await response.json();
-    return Array.isArray(games) ? games : [];
+    const query = period === 'all' 
+      ? `
+        SELECT 
+          g.*,
+          json_group_object(date, d.count) as per_date,
+          g.total_downloads as period_downloads
+        FROM games g
+        LEFT JOIN downloads d ON g.tid = d.tid
+        WHERE g.is_base = 1
+        GROUP BY g.tid
+        ORDER BY g.total_downloads DESC
+      `
+      : `
+        WITH period_downloads AS (
+          SELECT 
+            tid,
+            SUM(count) as period_total
+          FROM downloads
+          WHERE date >= date('now', '-${period === '72h' ? '3 days' : period === '7d' ? '7 days' : '30 days'}')
+          GROUP BY tid
+        )
+        SELECT 
+          g.*,
+          json_group_object(date, d.count) as per_date,
+          COALESCE(pd.period_total, 0) as period_downloads
+        FROM games g
+        LEFT JOIN downloads d ON g.tid = d.tid
+        LEFT JOIN period_downloads pd ON g.tid = pd.tid
+        WHERE g.is_base = 1
+        GROUP BY g.tid
+        ORDER BY COALESCE(pd.period_total, 0) DESC
+      `;
+    const results = db.prepare(query).all() as DbGame[];
+    
+    // Convert database rows to Game objects
+    return results.map(row => ({
+      tid: row.tid,
+      is_base: Boolean(row.is_base),
+      is_update: Boolean(row.is_update),
+      is_dlc: Boolean(row.is_dlc),
+      base_tid: row.base_tid,
+      stats: {
+        per_date: row.per_date ? JSON.parse(row.per_date) : {},
+        total_downloads: Number(row.total_downloads || 0),
+        period_downloads: row.period_downloads ? {
+          last_72h: period === '72h' ? Number(row.period_downloads) : 0,
+          last_7d: period === '7d' ? Number(row.period_downloads) : 0,
+          last_30d: period === '30d' ? Number(row.period_downloads) : 0
+        } : undefined,
+        tid_downloads: {}
+      },
+      info: {
+        name: row.name || undefined,
+        version: row.version || undefined,
+        size: row.size ? Number(row.size) : undefined,
+        releaseDate: row.release_date || undefined
+      }
+    }));
   } catch (error) {
     console.error('Error fetching top games:', error);
     return [];
@@ -57,42 +107,114 @@ export const getTopGames = cache(async (period: '72h' | '7d' | '30d' | 'all', sh
 });
 
 // Get game rankings for all periods
-export const getGameRankings = cache(async (tid: string) => {
+export const getGameRankings = cache(async (tid: string): Promise<Record<'72h' | '7d' | '30d' | 'all', { current: number | null; previous: number | null; change: number | null; }>> => {
   try {
-    const response = await fetch(`${API_BASE}/api/rankings/${tid}`, {
-      cache: 'no-store',
-      next: { revalidate: 0 }
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    const db = await getDatabase();
+    if (!db) {
+      throw new Error('Database connection failed');
     }
     
-    return await response.json();
+    const rankings: Record<'72h' | '7d' | '30d' | 'all', { current: number | null; previous: number | null; change: number | null; }> = {
+      '72h': { current: null, previous: null, change: null },
+      '7d': { current: null, previous: null, change: null },
+      '30d': { current: null, previous: null, change: null },
+      'all': { current: null, previous: null, change: null }
+    };
+    
+    for (const period of ['72h', '7d', '30d', 'all'] as const) {
+      const query = period === 'all'
+        ? `
+          SELECT ROW_NUMBER() OVER (ORDER BY total_downloads DESC) as rank
+          FROM games
+          WHERE is_base = 1
+        `
+        : `
+          WITH period_downloads AS (
+            SELECT tid, SUM(count) as total
+            FROM downloads
+            WHERE date >= date('now', '-${period === '72h' ? '3 days' : period === '7d' ? '7 days' : '30 days'}')
+            GROUP BY tid
+          )
+          SELECT ROW_NUMBER() OVER (ORDER BY COALESCE(total, 0) DESC) as rank
+          FROM games g
+          LEFT JOIN period_downloads pd ON g.tid = pd.tid
+          WHERE g.is_base = 1
+        `;
+      
+      const result = db.prepare(query).get() as { rank: number } | undefined;
+      if (result) {
+        rankings[period] = {
+          current: result.rank,
+          previous: result.rank,
+          change: 0
+        };
+      }
+    }
+    return rankings;
   } catch (error) {
     console.error('Error fetching game rankings:', error);
-    return null;
+    return {
+      '72h': { current: null, previous: null, change: null },
+      '7d': { current: null, previous: null, change: null },
+      '30d': { current: null, previous: null, change: null },
+      'all': { current: null, previous: null, change: null }
+    };
   }
 });
 
 // Get rankings for multiple games at once
 export const getGamesRankings = cache(async (tids: string[], period: '72h' | '7d' | '30d' | 'all') => {
   try {
-    const response = await fetch(`${API_BASE}/api/rankings`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ tids, period }),
-      cache: 'no-store'
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    interface RankingResult {
+      tid: string;
+      current_rank: number;
+      previous_rank: number;
+    }
+
+    const db = await getDatabase();
+    if (!db) {
+      throw new Error('Database connection failed');
     }
     
-    const data = await response.json();
-    return new Map(Object.entries(data));
+    const query = period === 'all'
+      ? `
+        WITH rankings AS (
+          SELECT 
+            tid,
+            ROW_NUMBER() OVER (ORDER BY total_downloads DESC) as current_rank,
+            ROW_NUMBER() OVER (ORDER BY total_downloads DESC) as previous_rank
+          FROM games
+          WHERE is_base = 1
+        )
+        SELECT * FROM rankings WHERE tid IN (${tids.map(() => '?').join(',')})
+      `
+      : `
+        WITH period_downloads AS (
+          SELECT tid, SUM(count) as total
+          FROM downloads
+          WHERE date >= date('now', '-${period === '72h' ? '3 days' : period === '7d' ? '7 days' : '30 days'}')
+          GROUP BY tid
+        ),
+        rankings AS (
+          SELECT 
+            g.tid,
+            ROW_NUMBER() OVER (ORDER BY COALESCE(pd.total, 0) DESC) as current_rank,
+            ROW_NUMBER() OVER (ORDER BY COALESCE(pd.total, 0) DESC) as previous_rank
+          FROM games g
+          LEFT JOIN period_downloads pd ON g.tid = pd.tid
+          WHERE g.is_base = 1
+        )
+        SELECT * FROM rankings WHERE tid IN (${tids.map(() => '?').join(',')})
+      `;
+    const results = db.prepare(query).all(tids) as RankingResult[];
+    return new Map(results.map(row => [
+      row.tid,
+      {
+        current: row.current_rank,
+        previous: row.previous_rank,
+        change: row.previous_rank - row.current_rank
+      }
+    ]));
   } catch (error) {
     console.error('Error fetching games rankings:', error);
     return new Map();
@@ -102,19 +224,58 @@ export const getGamesRankings = cache(async (tids: string[], period: '72h' | '7d
 // Get details for a specific game
 export const getGameDetails = cache(async (tid: string) => {
   try {
-    const response = await fetch(`${API_BASE}/api/games/${tid}`, {
-      cache: 'no-store'
-    });
-    
-    if (response.status === 404) {
-      return null;
+    const db = await getDatabase();
+    if (!db) {
+      throw new Error('Database connection failed');
     }
     
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
+    const query = `
+      SELECT 
+        g.*,
+        json_group_object(date, d.count) as per_date,
+        (
+          SELECT json_group_object(period, total)
+          FROM (
+            SELECT '72h' as period, SUM(CASE WHEN date >= date('now', '-3 days') THEN count ELSE 0 END) as total
+            FROM downloads WHERE tid = g.tid
+            UNION ALL
+            SELECT '7d', SUM(CASE WHEN date >= date('now', '-7 days') THEN count ELSE 0 END)
+            FROM downloads WHERE tid = g.tid
+            UNION ALL
+            SELECT '30d', SUM(CASE WHEN date >= date('now', '-30 days') THEN count ELSE 0 END)
+            FROM downloads WHERE tid = g.tid
+          )
+        ) as period_downloads
+      FROM games g
+      LEFT JOIN downloads d ON g.tid = d.tid
+      WHERE g.tid = ?
+      GROUP BY g.tid
+    `;
     
-    return await response.json();
+    const result = db.prepare(query).get(tid) as DbGame | undefined;
+    
+    if (!result) return null;
+    
+    // Convert database row to Game object
+    return {
+      tid: result.tid,
+      is_base: Boolean(result.is_base),
+      is_update: Boolean(result.is_update),
+      is_dlc: Boolean(result.is_dlc),
+      base_tid: result.base_tid,
+      stats: {
+        per_date: JSON.parse(result.per_date || '{}'),
+        total_downloads: Number(result.total_downloads || 0),
+        period_downloads: result.period_downloads ? JSON.parse(result.period_downloads) : undefined,
+        tid_downloads: {}
+      },
+      info: {
+        name: result.name || undefined,
+        version: result.version || undefined,
+        size: result.size ? Number(result.size) : undefined,
+        releaseDate: result.release_date || undefined
+      }
+    } as Game;
   } catch (error) {
     console.error('Error fetching game details:', error);
     return null;
