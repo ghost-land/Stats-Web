@@ -1,221 +1,120 @@
 import { cache } from 'react';
-import { getGamesCache, type Game, type GameStats } from './indexer';
+import type { Game } from './types';
 
-// Constantes pour la mise en cache
-const CACHE_TTL = 60 * 60 * 1000; // 1 heure en millisecondes
-let gamesCache: Game[] | null = null;
-let lastCacheTime = 0;
-
-// Get games with caching
-async function getGamesWithCache(): Promise<Game[]> {
-  const now = Date.now();
-  if (gamesCache && (now - lastCacheTime) < CACHE_TTL) {
-    return gamesCache;
-  }
-
-  try {
-    const games = await getGamesCache();
-    gamesCache = games;
-    lastCacheTime = now;
-    return games;
-  } catch (error) {
-    console.error('Error loading games:', error);
-    return gamesCache || [];
-  }
-}
-
-// Calculate downloads for a specific period with validation
-function calculatePeriodDownloads(stats: GameStats, days: number): number {
-  try {
-    const dates = Object.keys(stats.per_date).sort();
-    const recentDates = dates.slice(-days);
-    return recentDates.reduce((sum, date) => {
-      const downloads = stats.per_date[date];
-      return sum + (typeof downloads === 'number' ? downloads : 0);
-    }, 0);
-  } catch (error) {
-    console.error('Error calculating period downloads:', error);
-    return 0;
-  }
-}
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 // Get global statistics
 export const getGlobalStats = cache(async () => {
-  const games = await getGamesWithCache();
-  
-  // Calculate total downloads for different periods
-  const calculateTotalDownloads = (days: number) => {
-    return games.reduce((total, game) => {
-      return total + calculatePeriodDownloads(game.stats, days);
-    }, 0);
-  };
-
-  return {
-    last72h: calculateTotalDownloads(3),
-    last7d: calculateTotalDownloads(7),
-    last30d: calculateTotalDownloads(30),
-    allTime: games.reduce((total, game) => total + game.stats.total_downloads, 0),
-  };
+  try {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/stats`, {
+      cache: 'no-store',
+      next: { revalidate: 0 }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return await response.json();
+    const data = await response.json();
+    return {
+      last_72h: Number(data.last_72h || 0),
+      last_7d: Number(data.last_7d || 0),
+      last_30d: Number(data.last_30d || 0),
+      all_time: Number(data.all_time || 0)
+    };
+  } catch (error) {
+    console.error('Error fetching global stats:', error);
+    return {
+      last_72h: 0,
+      last_7d: 0,
+      last_30d: 0,
+      all_time: 0
+    };
+  }
 });
 
 // Get top games for a specific period
 export const getTopGames = cache(async (period: '72h' | '7d' | '30d' | 'all', showAll = false) => {
-  const games = await getGamesWithCache();
-  const baseGames = games.filter(game => game.is_base);
-
-  if (baseGames.length === 0) {
+  try {
+    const response = await fetch(`${API_BASE}/api/top/${period}`, {
+      cache: 'no-store',
+      next: { revalidate: 0 }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const games = await response.json();
+    return Array.isArray(games) ? games : [];
+  } catch (error) {
+    console.error('Error fetching top games:', error);
     return [];
   }
-
-  const periodDays = {
-    '72h': 3,
-    '7d': 7,
-    '30d': 30,
-    'all': 0,
-  };
-
-  // Pour "all", utiliser directement total_downloads sans calcul supplémentaire
-  const sortedGames = baseGames
-    .map(game => ({
-      ...game,
-      downloads: period === 'all' 
-        ? (game.stats.total_downloads || 0)
-        : calculatePeriodDownloads(game.stats, periodDays[period])
-    }))
-    .sort((a, b) => b.downloads - a.downloads);
-
-  return showAll ? sortedGames : sortedGames.slice(0, 12);
 });
 
 // Get game rankings for all periods
 export const getGameRankings = cache(async (tid: string) => {
-  const games = await getGamesWithCache();
-  const game = games.find(g => g.tid === tid);
-  if (!game) return null;
-
-  const baseGames = games.filter(game => game.is_base);
-  if (baseGames.length === 0) return null;
-
-  const periods = {
-    '72h': 3,
-    '7d': 7,
-    '30d': 30,
-    'all': 0,
-  } as const;
-
-  const rankings: Record<keyof typeof periods, { 
-    current: number | null;
-    previous: number | null;
-    change: number | null;
-  }> = {
-    '72h': { current: null, previous: null, change: null },
-    '7d': { current: null, previous: null, change: null },
-    '30d': { current: null, previous: null, change: null },
-    'all': { current: null, previous: null, change: null },
-  };
-
-  Object.entries(periods).forEach(([period, days]) => {
-    const currentSortedGames = baseGames
-      .map(game => ({
-        tid: game.tid,
-        downloads: days === 0 
-          ? (game.stats.total_downloads || 0)
-          : calculatePeriodDownloads(game.stats, days)
-      }))
-      .sort((a, b) => b.downloads - a.downloads);
-
-    const currentRank = currentSortedGames.findIndex(g => g.tid === tid) + 1;
+  try {
+    const response = await fetch(`${API_BASE}/api/rankings/${tid}`, {
+      cache: 'no-store',
+      next: { revalidate: 0 }
+    });
     
-    if (period === 'all') {
-      rankings[period as keyof typeof periods] = {
-        current: currentRank || null,
-        previous: currentRank || null,
-        change: 0
-      };
-      return;
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
-
-    const previousSortedGames = baseGames
-      .map(game => ({
-        tid: game.tid,
-        downloads: calculatePeriodDownloads(game.stats, days * 2) - calculatePeriodDownloads(game.stats, days)
-      }))
-      .sort((a, b) => b.downloads - a.downloads);
-
-    const previousRank = previousSortedGames.findIndex(g => g.tid === tid) + 1;
     
-    rankings[period as keyof typeof periods] = {
-      current: currentRank || null,
-      previous: previousRank || null,
-      change: previousRank && currentRank ? previousRank - currentRank : null
-    };
-  });
-
-  return rankings;
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching game rankings:', error);
+    return null;
+  }
 });
 
-// Get rankings for multiple games at once with improved caching
+// Get rankings for multiple games at once
 export const getGamesRankings = cache(async (tids: string[], period: '72h' | '7d' | '30d' | 'all') => {
-  const games = await getGamesWithCache();
-  const baseGames = games.filter(game => game.is_base);
-  
-  if (baseGames.length === 0) return new Map();
-
-  const days = period === 'all' ? 0 : {
-    '72h': 3,
-    '7d': 7,
-    '30d': 30,
-  }[period];
-
-  // Pour "all", utiliser directement total_downloads
-  const currentSortedGames = baseGames
-    .map(game => ({
-      tid: game.tid,
-      downloads: days === 0 
-        ? (game.stats.total_downloads || 0)
-        : calculatePeriodDownloads(game.stats, days)
-    }))
-    .sort((a, b) => b.downloads - a.downloads);
-
-  // Pour "all", pas besoin de calcul précédent
-  const previousSortedGames = days === 0 ? [] : baseGames
-    .map(game => ({
-      tid: game.tid,
-      downloads: calculatePeriodDownloads(game.stats, days * 2) - calculatePeriodDownloads(game.stats, days)
-    }))
-    .sort((a, b) => b.downloads - a.downloads);
-
-  const rankings = new Map();
-  
-  // Optimisation : ne calculer que pour les TIDs demandés
-  const tidsSet = new Set(tids);
-  
-  currentSortedGames.forEach((game, index) => {
-    if (!tidsSet.has(game.tid)) return;
+  try {
+    const response = await fetch(`${API_BASE}/api/rankings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ tids, period }),
+      cache: 'no-store'
+    });
     
-    const currentRank = index + 1;
-    if (days === 0) {
-      rankings.set(game.tid, {
-        current: currentRank,
-        previous: currentRank,
-        change: 0
-      });
-    } else {
-      const previousIndex = previousSortedGames.findIndex(g => g.tid === game.tid);
-      const previousRank = previousIndex === -1 ? null : previousIndex + 1;
-      rankings.set(game.tid, {
-        current: currentRank,
-        previous: previousRank,
-        change: previousRank ? previousRank - currentRank : null
-      });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
-  });
-
-  return rankings;
+    
+    const data = await response.json();
+    return new Map(Object.entries(data));
+  } catch (error) {
+    console.error('Error fetching games rankings:', error);
+    return new Map();
+  }
 });
 
 // Get details for a specific game
 export const getGameDetails = cache(async (tid: string) => {
-  const games = await getGamesWithCache();
-  return games.find(game => game.tid === tid);
+  try {
+    const response = await fetch(`${API_BASE}/api/games/${tid}`, {
+      cache: 'no-store'
+    });
+    
+    if (response.status === 404) {
+      return null;
+    }
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching game details:', error);
+    return null;
+  }
 });

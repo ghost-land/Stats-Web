@@ -5,7 +5,7 @@ import { SearchBar } from '@/components/search-bar';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+export const revalidate = 0; // Disable cache completely
 
 export default function Home() {
   return (

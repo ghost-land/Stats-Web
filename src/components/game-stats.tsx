@@ -1,10 +1,9 @@
 import { Card } from '@/components/ui/card';
 import { DownloadChart } from '@/components/download-chart';
-import { ArrowDown, ArrowUp, ArrowRight, TrendingDown, TrendingUp, Clock, Download, History, ChevronRight } from 'lucide-react';
+import { TrendingDown, TrendingUp, Clock, Download, History, ChevronRight } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
 import type { Game } from '@/lib/types';
 import { getGameRankings } from '@/lib/api';
-import { cn } from '@/lib/utils';
 
 interface PeriodStats {
   period: '72h' | '7d' | '30d';
@@ -52,16 +51,9 @@ export async function GameStats({ game }: { game: Game }) {
     );
   }
 
-  const calculatePeriodDownloads = (days: number) => {
-    const dates = Object.entries(game.stats.per_date)
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .slice(-days);
-    return dates.reduce((sum, [, downloads]) => sum + downloads, 0);
-  };
-
-  const last72h = calculatePeriodDownloads(3);
-  const last7d = calculatePeriodDownloads(7);
-  const last30d = calculatePeriodDownloads(30);
+  const last72h = game.stats.period_downloads?.last_72h || 0;
+  const last7d = game.stats.period_downloads?.last_7d || 0;
+  const last30d = game.stats.period_downloads?.last_30d || 0;
 
   // Get rankings for all periods
   const rankings = await getGameRankings(game.tid);

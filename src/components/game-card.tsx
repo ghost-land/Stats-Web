@@ -6,7 +6,7 @@ import { ChevronRight, Download, Star, Calendar, HardDrive, Tag, TrendingUp, Tre
 import { Card } from '@/components/ui/card';
 import { useState, useEffect } from 'react';
 import type { Game } from '@/lib/types';
-import { formatDate, formatFileSize, getBaseGameTid, getGameType, gameTypeConfig } from '@/lib/utils';
+import { formatDate, formatFileSize, getBaseGameTid, getGameType, gameTypeConfig, cn } from '@/lib/utils';
 
 interface GameCardProps {
   game: Game;
@@ -37,10 +37,21 @@ export function GameCard({ game, rank, period = 'all', rankChange }: GameCardPro
   const [mounted, setMounted] = useState(false);
   const [bannerError, setBannerError] = useState(false);
   const [iconError, setIconError] = useState(false);
+  const [showBaseGame, setShowBaseGame] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Pour les mises à jour et DLC, charger les informations du jeu de base
+  useEffect(() => {
+    if (!game.is_base && game.base_tid) {
+      fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/games/${game.base_tid}`)
+        .then(res => res.json())
+        .then(baseGame => setShowBaseGame(true))
+        .catch(console.error);
+    }
+  }, [game]);
 
   if (!mounted || !game) return null;
 
@@ -61,9 +72,17 @@ export function GameCard({ game, rank, period = 'all', rankChange }: GameCardPro
   const gameType = getGameType(game.tid);
   const typeConfig = gameTypeConfig[gameType];
 
+  // Ajouter une classe spéciale pour les mises à jour et DLC
+  const cardClasses = cn(
+    "group relative overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl will-change-transform h-full bg-gradient-to-br from-white to-white/95 dark:from-slate-900 dark:to-slate-900/95",
+    {
+      'ring-2 ring-indigo-500/20 dark:ring-indigo-400/20': !game.is_base
+    }
+  );
+
   return (
     <Link href={`/${game.tid}`}>
-      <Card className="group relative overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl will-change-transform h-full bg-gradient-to-br from-white to-white/95 dark:from-slate-900 dark:to-slate-900/95">
+      <Card className={cardClasses}>
         {/* Rank Trend Badge */}
         <RankTrendBadge change={rankChange} period={period} />
 
@@ -146,6 +165,11 @@ export function GameCard({ game, rank, period = 'all', rankChange }: GameCardPro
                 <span className={`inline-flex px-2 py-1 rounded-md text-xs font-medium ${typeConfig.colors.light} ${typeConfig.colors.dark}`}>
                   {typeConfig.label}
                 </span>
+                {!game.is_base && game.base_tid && (
+                  <span className="text-xs text-slate-500 dark:text-slate-400 ml-2">
+                    Base: {game.base_tid}
+                  </span>
+                )}
               </div>
 
               {/* Stats Grid */}

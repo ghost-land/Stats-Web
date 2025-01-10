@@ -13,7 +13,7 @@ function StatCard({
   gradient
 }: {
   title: string;
-  value: number;
+  value: number | undefined;
   subtitle: string;
   icon: typeof Clock;
   gradient: {
@@ -31,7 +31,7 @@ function StatCard({
             <Icon className="h-4 w-4 text-slate-600 dark:text-slate-400" />
           </div>
           <div className="mt-4 text-3xl font-bold">
-            {value.toLocaleString()}
+            {value?.toLocaleString() || '0'}
           </div>
           <div className="mt-2 text-xs text-slate-500 dark:text-slate-500">
             {subtitle}
@@ -45,15 +45,15 @@ function StatCard({
 async function StatsContent() {
   const stats = await getGlobalStats();
 
-  if (!stats || (stats.last72h === 0 && stats.last7d === 0 && stats.last30d === 0 && stats.allTime === 0)) {
+  if (!stats) {
     return <EmptyState />;
   }
 
   const statCards = [
     {
       title: 'Last 72 Hours',
-      value: stats.last72h,
-      subtitle: `+${((stats.last72h / stats.last7d) * 100).toFixed(1)}% vs last week`,
+      value: stats.last_72h,
+      subtitle: stats.last_7d ? `${((stats.last_72h / stats.last_7d) * 100).toFixed(1)}% vs last week` : 'No data available',
       icon: Clock,
       gradient: {
         border: 'from-indigo-500/20 to-indigo-600/20',
@@ -62,8 +62,8 @@ async function StatsContent() {
     },
     {
       title: 'Last 7 Days',
-      value: stats.last7d,
-      subtitle: `+${((stats.last7d / stats.last30d) * 100).toFixed(1)}% vs last month`,
+      value: stats.last_7d,
+      subtitle: stats.last_30d ? `${((stats.last_7d / stats.last_30d) * 100).toFixed(1)}% vs last month` : 'No data available',
       icon: TrendingUp,
       gradient: {
         border: 'from-violet-500/20 to-violet-600/20',
@@ -72,8 +72,8 @@ async function StatsContent() {
     },
     {
       title: 'Last 30 Days',
-      value: stats.last30d,
-      subtitle: `Average: ${Math.round(stats.last30d / 30).toLocaleString()} per day`,
+      value: stats.last_30d,
+      subtitle: `Average: ${Math.round((stats.last_30d || 0) / 30).toLocaleString()} per day`,
       icon: Download,
       gradient: {
         border: 'from-purple-500/20 to-purple-600/20',
@@ -82,7 +82,7 @@ async function StatsContent() {
     },
     {
       title: 'All Time',
-      value: stats.allTime,
+      value: stats.all_time,
       subtitle: 'Total downloads tracked',
       icon: History,
       gradient: {

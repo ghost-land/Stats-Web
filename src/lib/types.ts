@@ -9,6 +9,11 @@ export interface GameStats {
   per_date: Record<string, number>;
   tid_downloads: Record<string, number>;
   total_downloads: number;
+  period_downloads?: {
+    last_72h: number;
+    last_7d: number;
+    last_30d: number;
+  };
 }
 
 export interface Game {

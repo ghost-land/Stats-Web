@@ -76,6 +76,30 @@ export function Navigation() {
         </div>
 
         <div className="flex items-center space-x-4">
+          <Link
+            href="/api/docs"
+            className={`p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${
+              isActive('/api/docs') ? 'text-indigo-500' : ''
+            }`}
+          >
+            <div className="flex items-center space-x-1">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-5 h-5"
+              >
+                <path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" />
+                <path d="M4 6v12c0 1.1.9 2 2 2h14v-4" />
+                <path d="M18 12a2 2 0 0 0-2 2c0 1.1.9 2 2 2h4v-4h-4z" />
+              </svg>
+              <span className="text-sm font-medium">API</span>
+            </div>
+          </Link>
           <a
             href="https://github.com/ghost-land/Stats-Web"
             target="_blank"

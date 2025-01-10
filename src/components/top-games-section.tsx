@@ -1,4 +1,4 @@
-import { getTopGames, getGameRankings } from '@/lib/api';
+import { getTopGames } from '@/lib/api';
 import { GameCard } from '@/components/game-card';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/empty-state';
@@ -45,71 +45,65 @@ const periodConfig = {
 } as const;
 
 export async function TopGamesSection({ period }: { period: keyof typeof periodConfig }) {
-  const games = await getTopGames(period);
-  const { title, icon: Icon, gradient } = periodConfig[period];
+  try {
+    const games = await getTopGames(period);
+    const { title, icon: Icon, gradient } = periodConfig[period];
 
-  // Get previous rankings for comparison
-  const previousRankings = new Map();
-  for (const game of games) {
-    const rankings = await getGameRankings(game.tid);
-    if (rankings?.[period]) {
-      previousRankings.set(game.tid, rankings[period].previous);
+    if (!games || games.length === 0) {
+      return (
+        <EmptyState 
+          title="No Games Found"
+          message="There are no games to display for this period."
+        />
+      );
     }
-  }
 
-  // Limit to 12 games for homepage sections
-  const displayGames = games.slice(0, 12);
+    // Limit to 12 games for homepage sections
+    const displayGames = games.slice(0, 12);
 
-  if (!displayGames.length) {
     return (
-      <EmptyState 
-        title="No Games Found"
-        message="There are no games to display for this period."
-      />
-    );
-  }
-
-  return (
-    <div className={`relative overflow-hidden rounded-xl bg-gradient-to-br ${gradient.border} p-[1px]`}>
-      <Card className="relative overflow-hidden">
-        <div className={`absolute inset-0 bg-gradient-to-br ${gradient.bg}`} />
-        
-        <div className={`relative p-6 bg-gradient-to-r ${gradient.header}`}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Icon className="h-6 w-6 text-white" />
-              <h2 className="text-2xl font-bold text-white">{title}</h2>
+      <div className={`relative overflow-hidden rounded-xl bg-gradient-to-br ${gradient.border} p-[1px]`}>
+        <Card className="relative overflow-hidden">
+          <div className={`absolute inset-0 bg-gradient-to-br ${gradient.bg}`} />
+          
+          <div className={`relative p-6 bg-gradient-to-r ${gradient.header}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <Icon className="h-6 w-6 text-white" />
+                <h2 className="text-2xl font-bold text-white">{title}</h2>
+              </div>
+              <Link
+                href={`/top/${period}`}
+                className="flex items-center space-x-2 text-white/80 hover:text-white transition-colors"
+              >
+                <span className="text-sm">View All</span>
+                <ArrowRight className="w-4 h-4" />
+              </Link>
             </div>
-            <Link
-              href={`/top/${period}`}
-              className="flex items-center space-x-2 text-white/80 hover:text-white transition-colors"
-            >
-              <span className="text-sm">View All</span>
-              <ArrowRight className="w-4 h-4" />
-            </Link>
           </div>
-        </div>
-        
-        <div className="relative p-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-8">
-            {displayGames.map((game, index) => {
-              const previousRank = previousRankings.get(game.tid) || 0;
-              const currentRank = index + 1;
-              const rankChange = previousRank ? previousRank - currentRank : 0;
-
-              return (
+          
+          <div className="relative p-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-8">
+              {displayGames.map((game, index) => (
                 <GameCard 
                   key={game.tid} 
                   game={game} 
-                  rank={currentRank}
+                  rank={index + 1}
                   period={period}
-                  rankChange={rankChange}
                 />
-              );
-            })}
+              ))}
+            </div>
           </div>
-        </div>
-      </Card>
-    </div>
-  );
+        </Card>
+      </div>
+    );
+  } catch (error) {
+    console.error(`Error loading top games for ${period}:`, error);
+    return (
+      <EmptyState 
+        title="Error Loading Games"
+        message="There was an error loading the game statistics. Please try again later."
+      />
+    );
+  }
 }
