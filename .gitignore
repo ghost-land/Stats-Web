@@ -38,3 +38,6 @@ next-env.d.ts
 
 # Data files
 /data/*.json
+public/games.db
+public/games.db-shm
+public/games.db-wal

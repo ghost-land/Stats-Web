@@ -21,7 +21,8 @@ export const getGlobalStats = cache(async () => {
       last_72h: Number(data.last_72h || 0),
       last_7d: Number(data.last_7d || 0),
       last_30d: Number(data.last_30d || 0),
-      all_time: Number(data.all_time || 0)
+      all_time: Number(data.all_time || 0),
+      last_updated: data.last_updated
     };
   } catch (error) {
     console.error('Error fetching global stats:', error);
@@ -29,7 +30,8 @@ export const getGlobalStats = cache(async () => {
       last_72h: 0,
       last_7d: 0,
       last_30d: 0,
-      all_time: 0
+      all_time: 0,
+      last_updated: null
     };
   }
 });

@@ -10,7 +10,7 @@ interface GlobalStats {
 }
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 3600; // Revalidate every hour
+export const revalidate = 0;
 
 export async function GET() {
   try {
@@ -23,6 +23,7 @@ export async function GET() {
     const stats = db.prepare('SELECT * FROM global_stats WHERE id = 1').get() as GlobalStats;
     
     if (!stats) {
+    const stats = db.prepare('SELECT * FROM global_stats WHERE id = 1').get() as GlobalStats;
       throw new Error('Global stats not found');
     }
 
@@ -30,7 +31,8 @@ export async function GET() {
       last_72h: Number(stats.last_72h || 0),
       last_7d: Number(stats.last_7d || 0),
       last_30d: Number(stats.last_30d || 0),
-      allTime: Number(stats.all_time || 0)
+      all_time: Number(stats.all_time || 0),
+      last_updated: stats.last_updated
     };
 
     return NextResponse.json(formattedStats);

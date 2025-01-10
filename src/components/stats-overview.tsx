@@ -45,7 +45,7 @@ function StatCard({
 async function StatsContent() {
   const stats = await getGlobalStats();
 
-  if (!stats) {
+  if (!stats || !stats.last_updated) {
     return <EmptyState />;
   }
 
@@ -103,7 +103,7 @@ async function StatsContent() {
               Global Statistics
             </h2>
             <div className="flex flex-col items-end text-sm text-muted-foreground">
-              <div>Last updated: {new Date().toLocaleString()}</div>
+              <div>Last updated: {stats.last_updated}</div>
               <div>Version {pkg.version}</div>
             </div>
           </div>
