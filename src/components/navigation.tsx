@@ -51,16 +51,16 @@ export function Navigation() {
   return (
     <nav className="border-b bg-gradient-to-r from-background to-background/95 backdrop-blur-sm sticky top-0 z-50">
       <div className="container mx-auto px-4 h-16 flex items-center">
-        <div className="flex items-center space-x-6">
+        <div className="flex items-center space-x-6 md:flex-shrink-0">
           <Link href="/" className="flex items-center space-x-2 group">
             <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 text-white p-2 rounded-lg transition-transform group-hover:scale-105">
               <BarChart3 className="w-5 h-5" />
             </div>
             <div className="flex flex-col mr-4">
-              <span className="font-bold text-lg group-hover:text-indigo-500 transition-colors">
+              <span className="hidden md:block font-bold text-lg group-hover:text-indigo-500 transition-colors">
                 Game Stats
               </span>
-              <span className="text-xs text-muted-foreground">v{pkg.version}</span>
+              <span className="text-xs text-muted-foreground md:text-left text-center">v{pkg.version}</span>
             </div>
           </Link>
           
