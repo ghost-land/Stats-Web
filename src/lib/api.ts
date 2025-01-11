@@ -14,12 +14,43 @@ export const getGlobalStats = cache(async () => {
     if (!stats) {
       throw new Error('Global stats not found');
     }
+
+    // Calculate evolution percentages
+    interface PeriodStats {
+      prev_72h: number;
+      prev_7d: number;
+      prev_30d: number;
+    }
+
+    const prevStats = db.prepare(`
+      WITH period_stats AS (
+        SELECT
+          SUM(CASE WHEN date >= date('now', '-6 days') AND date < date('now', '-3 days') THEN count ELSE 0 END) as prev_72h,
+          SUM(CASE WHEN date >= date('now', '-14 days') AND date < date('now', '-7 days') THEN count ELSE 0 END) as prev_7d,
+          SUM(CASE WHEN date >= date('now', '-60 days') AND date < date('now', '-30 days') THEN count ELSE 0 END) as prev_30d
+        FROM downloads
+      )
+      SELECT * FROM period_stats
+    `).get() as PeriodStats;
+
+    const evolution_72h = prevStats.prev_72h > 0 
+      ? ((stats.last_72h - prevStats.prev_72h) / prevStats.prev_72h) * 100 
+      : 0;
+    const evolution_7d = prevStats.prev_7d > 0 
+      ? ((stats.last_7d - prevStats.prev_7d) / prevStats.prev_7d) * 100 
+      : 0;
+    const evolution_30d = prevStats.prev_30d > 0 
+      ? ((stats.last_30d - prevStats.prev_30d) / prevStats.prev_30d) * 100 
+      : 0;
     
     return {
       last_72h: Number(stats.last_72h || 0),
       last_7d: Number(stats.last_7d || 0),
       last_30d: Number(stats.last_30d || 0),
       all_time: Number(stats.all_time || 0),
+      evolution_72h: Number(evolution_72h.toFixed(1)),
+      evolution_7d: Number(evolution_7d.toFixed(1)),
+      evolution_30d: Number(evolution_30d.toFixed(1)),
       last_updated: stats.last_updated || null
     } satisfies GlobalStats;
   } catch (error) {
@@ -29,6 +60,9 @@ export const getGlobalStats = cache(async () => {
       last_7d: 0,
       last_30d: 0,
       all_time: 0,
+      evolution_72h: 0,
+      evolution_7d: 0,
+      evolution_30d: 0,
       last_updated: null
     } satisfies GlobalStats;
   }
@@ -37,12 +71,14 @@ export const getGlobalStats = cache(async () => {
 // Get top games for a specific period
 export const getTopGames = cache(async (period: '72h' | '7d' | '30d' | 'all', showAll = false): Promise<Game[]> => {
   try {
+    console.log(`[API] Fetching top games for period: ${period}`);
     const db = await getDatabase();
     if (!db) {
       throw new Error('Database connection failed');
     }
     
-    const query = period === 'all' 
+    const startTime = performance.now();
+    const query = period === 'all'
       ? `
         SELECT 
           g.*,
@@ -55,29 +91,28 @@ export const getTopGames = cache(async (period: '72h' | '7d' | '30d' | 'all', sh
         ORDER BY g.total_downloads DESC
       `
       : `
-        WITH period_downloads AS (
-          SELECT 
-            tid,
-            SUM(count) as period_total
-          FROM downloads
-          WHERE date >= date('now', '-${period === '72h' ? '3 days' : period === '7d' ? '7 days' : '30 days'}')
-          GROUP BY tid
-        )
         SELECT 
           g.*,
           json_group_object(date, d.count) as per_date,
-          COALESCE(pd.period_total, 0) as period_downloads
+          cr.rank as current_rank,
+          cr.previous_rank,
+          cr.rank_change,
+          cr.downloads as period_downloads
         FROM games g
         LEFT JOIN downloads d ON g.tid = d.tid
-        LEFT JOIN period_downloads pd ON g.tid = pd.tid
+        LEFT JOIN current_rankings cr ON g.tid = cr.tid AND cr.period = ?
         WHERE g.is_base = 1
         GROUP BY g.tid
-        ORDER BY COALESCE(pd.period_total, 0) DESC
+        ORDER BY cr.rank ASC NULLS LAST
       `;
-    const results = db.prepare(query).all() as DbGame[];
+    const results = period === 'all' 
+      ? db.prepare(query).all() as DbGame[]
+      : db.prepare(query).all(period) as DbGame[];
+    
+    console.log(`[API] Found ${results.length} games for period ${period}`);
     
     // Convert database rows to Game objects
-    return results.map(row => ({
+    const formattedGames = results.map(row => ({
       tid: row.tid,
       is_base: Boolean(row.is_base),
       is_update: Boolean(row.is_update),
@@ -86,11 +121,7 @@ export const getTopGames = cache(async (period: '72h' | '7d' | '30d' | 'all', sh
       stats: {
         per_date: row.per_date ? JSON.parse(row.per_date) : {},
         total_downloads: Number(row.total_downloads || 0),
-        period_downloads: row.period_downloads ? {
-          last_72h: period === '72h' ? Number(row.period_downloads) : 0,
-          last_7d: period === '7d' ? Number(row.period_downloads) : 0,
-          last_30d: period === '30d' ? Number(row.period_downloads) : 0
-        } : undefined,
+        rank_change: row.rank_change !== undefined && row.rank_change !== null ? Number(row.rank_change) : undefined,
         tid_downloads: {}
       },
       info: {
@@ -100,6 +131,16 @@ export const getTopGames = cache(async (period: '72h' | '7d' | '30d' | 'all', sh
         releaseDate: row.release_date || undefined
       }
     }));
+
+    const duration = ((performance.now() - startTime) / 1000).toFixed(2);
+    console.log(`[API] Processed top games for ${period} in ${duration}s`);
+    
+    // Log ranking changes for debugging
+    formattedGames.slice(0, 10).forEach((game, index) => {
+      console.log(`[API] Game #${index + 1}: ${game.tid} (${game.info?.name || 'Unknown'}) - Change: ${game.stats.rank_change || 'N/A'}`);
+    });
+
+    return formattedGames;
   } catch (error) {
     console.error('Error fetching top games:', error);
     return [];
@@ -109,47 +150,58 @@ export const getTopGames = cache(async (period: '72h' | '7d' | '30d' | 'all', sh
 // Get game rankings for all periods
 export const getGameRankings = cache(async (tid: string): Promise<Record<'72h' | '7d' | '30d' | 'all', { current: number | null; previous: number | null; change: number | null; }>> => {
   try {
+    const startTime = performance.now();
     const db = await getDatabase();
     if (!db) {
       throw new Error('Database connection failed');
     }
     
-    const rankings: Record<'72h' | '7d' | '30d' | 'all', { current: number | null; previous: number | null; change: number | null; }> = {
+    // Get rankings from current_rankings table
+    const query = `
+      SELECT period, rank, previous_rank, rank_change
+      FROM current_rankings
+      WHERE tid = ?
+    `;
+    
+    interface RankingRow {
+      period: '72h' | '7d' | '30d' | 'all';
+      rank: number;
+      previous_rank: number | null;
+      rank_change: number | null;
+    }
+
+    const results = db.prepare(query).all(tid) as RankingRow[];
+    
+    // Convert to expected format
+    interface RankingRow {
+      period: '72h' | '7d' | '30d' | 'all';
+      rank: number;
+      previous_rank: number | null;
+      rank_change: number | null;
+    }
+
+    const rankings = results.reduce<Record<'72h' | '7d' | '30d' | 'all', { current: number | null; previous: number | null; change: number | null; }>>((acc, row) => {
+      acc[row.period] = {
+        current: row.rank,
+        previous: row.previous_rank,
+        change: row.rank_change
+      };
+      return acc;
+    }, {
       '72h': { current: null, previous: null, change: null },
       '7d': { current: null, previous: null, change: null },
       '30d': { current: null, previous: null, change: null },
       'all': { current: null, previous: null, change: null }
-    };
+    });
     
-    for (const period of ['72h', '7d', '30d', 'all'] as const) {
-      const query = period === 'all'
-        ? `
-          SELECT ROW_NUMBER() OVER (ORDER BY total_downloads DESC) as rank
-          FROM games
-          WHERE is_base = 1
-        `
-        : `
-          WITH period_downloads AS (
-            SELECT tid, SUM(count) as total
-            FROM downloads
-            WHERE date >= date('now', '-${period === '72h' ? '3 days' : period === '7d' ? '7 days' : '30 days'}')
-            GROUP BY tid
-          )
-          SELECT ROW_NUMBER() OVER (ORDER BY COALESCE(total, 0) DESC) as rank
-          FROM games g
-          LEFT JOIN period_downloads pd ON g.tid = pd.tid
-          WHERE g.is_base = 1
-        `;
-      
-      const result = db.prepare(query).get() as { rank: number } | undefined;
-      if (result) {
-        rankings[period] = {
-          current: result.rank,
-          previous: result.rank,
-          change: 0
-        };
-      }
-    }
+    const duration = ((performance.now() - startTime) / 1000).toFixed(2);
+    console.log(`[API] Rankings processed in ${duration}s`);
+    
+    // Log first few rankings for debugging
+    Object.entries(rankings).slice(0, 5).forEach(([period, ranking]) => {
+      console.log(`[API] Rankings for ${period}: Current: ${ranking.current}, Previous: ${ranking.previous}, Change: ${ranking.change}`);
+    });
+
     return rankings;
   } catch (error) {
     console.error('Error fetching game rankings:', error);
@@ -165,6 +217,9 @@ export const getGameRankings = cache(async (tid: string): Promise<Record<'72h' |
 // Get rankings for multiple games at once
 export const getGamesRankings = cache(async (tids: string[], period: '72h' | '7d' | '30d' | 'all') => {
   try {
+    console.log(`[API] Fetching rankings for ${tids.length} games in period ${period}`);
+    const startTime = performance.now();
+
     interface RankingResult {
       tid: string;
       current_rank: number;

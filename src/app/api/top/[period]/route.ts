@@ -57,42 +57,34 @@ export async function GET(
       ? `
         SELECT 
           g.*,
-          json_group_object(
-            date,
-            d.count
-          ) as per_date,
+          json_group_object(date, d.count) as per_date,
           g.total_downloads as period_downloads
         FROM games g
         LEFT JOIN downloads d ON g.tid = d.tid
         WHERE g.is_base = 1
         GROUP BY g.tid
-        ORDER BY g.total_downloads DESC
+        ORDER BY g.total_downloads DESC LIMIT 100
       `
       : `
-        WITH period_downloads AS (
-          SELECT 
-            tid,
-            SUM(count) as period_total
-          FROM downloads
-          WHERE ${getPeriodCondition(period)} 
-          GROUP BY tid
-        )
         SELECT 
           g.*,
-          json_group_object(
-            date,
-            d.count
-          ) as per_date,
-          COALESCE(pd.period_total, 0) as period_downloads
+          json_group_object(date, d.count) as per_date,
+          cr.downloads as period_downloads,
+          cr.rank as current_rank,
+          cr.previous_rank,
+          cr.rank_change
         FROM games g
         LEFT JOIN downloads d ON g.tid = d.tid
-        LEFT JOIN period_downloads pd ON g.tid = pd.tid
+        LEFT JOIN current_rankings cr ON g.tid = cr.tid AND cr.period = ?
         WHERE g.is_base = 1
         GROUP BY g.tid
-        ORDER BY COALESCE(pd.period_total, 0) DESC
+        ORDER BY cr.rank ASC NULLS LAST
+        LIMIT 100
       `;
     
-    const games = db.prepare(query).all() as DbGame[];
+    const games = period === 'all'
+      ? db.prepare(query).all() as DbGame[]
+      : db.prepare(query).all(period) as DbGame[];
 
     // Convert database rows to Game objects
     const formattedGames = games.map((row: any) => ({
@@ -104,6 +96,7 @@ export async function GET(
       stats: {
         per_date: row.per_date ? JSON.parse(row.per_date) : {},
         total_downloads: Number(row.period_downloads || 0),
+        rank_change: row.rank_change !== undefined && row.rank_change !== null ? Number(row.rank_change) : undefined,
         tid_downloads: {}
       },
       info: {

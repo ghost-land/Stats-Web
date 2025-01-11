@@ -48,22 +48,12 @@ const periodConfig = {
 
 export async function TopGamesSection({ 
   period,
-  initialData
 }: { 
   period: keyof typeof periodConfig,
-  initialData?: Game[]
 }) {
   try {
-    // Utiliser les données préchargées si disponibles
-    const games = initialData || await getTopGames(period);
+    const games = await getTopGames(period);
     const { title, icon: Icon, gradient } = periodConfig[period];
-
-    // Get rankings for all displayed games at once
-    const rankings = period === 'all' ? new Map() : 
-      await getGamesRankings(
-        games.slice(0, 12).map(game => game.tid),
-        period
-      );
 
     if (!games || games.length === 0) {
       return (
@@ -101,10 +91,7 @@ export async function TopGamesSection({
           <div className="relative p-8">
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-8">
               {displayGames.map((game, index) => {
-                const ranking = rankings.get(game.tid);
-                const rankChange = period === 'all' ? undefined : (
-                  ranking ? ranking.change : 0
-                );
+                const rankChange = period === 'all' ? undefined : game.stats.rank_change;
 
                 return (
                   <GameCard 

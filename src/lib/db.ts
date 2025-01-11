@@ -6,6 +6,8 @@ import fs from 'fs';
 export function getDbLastModified(): number {
   try {
     const stats = fs.statSync(DB_PATH);
+    console.log(`[DB] File size: ${(stats.size / 1024 / 1024).toFixed(2)}MB`);
+    console.log(`[DB] Last modified: ${new Date(stats.mtimeMs).toISOString()}`);
     return stats.mtimeMs;
   } catch (error) {
     console.error('Error getting DB last modified time:', error);
@@ -21,12 +23,14 @@ const DB_PATH = path.join(process.cwd(), 'public', 'games.db');
 export async function getDatabase() {
   const now = Date.now();
 
+  console.log('[DB] Checking database connection...');
+
   // Vérifier si la base de données a été modifiée
   if (db && (now - lastDbCheck) > DB_CHECK_INTERVAL) {
     try {
       const stats = fs.statSync(DB_PATH);
       if (stats.mtimeMs > lastDbCheck) {
-        console.log('[DB] Database file has been modified, reloading...');
+        console.log(`[DB] Database file has been modified (${new Date(stats.mtimeMs).toISOString()}), reloading...`);
         db.close();
         db = null;
       }
@@ -47,9 +51,9 @@ export async function getDatabase() {
       db = new Database(DB_PATH, { 
         readonly: false, 
         fileMustExist: true,
-        verbose: (sql) => {
+        verbose: (sql, time) => {
           if (process.env.NODE_ENV === 'development' || process.env.DEBUG) {
-            console.log(`[DB Query] ${sql}`);
+            console.log(`[DB Query] (${time}ms) ${sql}`);
           }
         },
         timeout: 5000
@@ -73,8 +77,9 @@ export async function getDatabase() {
       db.pragma('temp_store = MEMORY');
       
       const lastUpdate = db.prepare('SELECT last_updated FROM global_stats WHERE id = 1').get() as { last_updated: string } | undefined;
-      console.log('[DB] Connection established successfully');
-      console.log('[DB] Last data update:', lastUpdate?.last_updated || 'Never');
+      console.log(`[DB] Connection established successfully (${new Date().toISOString()})`);
+      console.log(`[DB] Last data update: ${lastUpdate?.last_updated || 'Never'}`);
+      console.log(`[DB] Database size: ${(fs.statSync(DB_PATH).size / 1024 / 1024).toFixed(2)}MB`);
 
       // Add event listener for process exit to close the connection
       process.on('exit', () => {

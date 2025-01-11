@@ -38,38 +38,41 @@ export async function GET(
   { params }: { params: { tid: string } }
 ) {
   try {
+    console.log(`[API] Fetching game details for TID: ${params.tid}`);
     const db = await getDatabase();
     if (!db) {
       throw new Error('Database connection failed');
     }
 
+    const startTime = performance.now();
+
     // Get single game with its stats
     const stmt = db.prepare(`
       SELECT 
         g.*,
-        COALESCE(json_group_object(
+        json_group_object(
           date,
           CAST(d.count AS TEXT)
-        ), '{}') as per_date,
+        ) as per_date,
         (
-          SELECT json_group_object(period, CAST(total AS TEXT))
+          SELECT json_group_object(period, total)
           FROM (
             SELECT 
               '72h' as period,
               SUM(CASE WHEN date >= date('now', '-3 days') THEN count ELSE 0 END) as total
-            FROM downloads
+            FROM downloads 
             WHERE tid = g.tid
             UNION ALL
             SELECT 
-              '7d' as period,
-              SUM(CASE WHEN date >= date('now', '-7 days') THEN count ELSE 0 END) as total
-            FROM downloads
+              '7d',
+              SUM(CASE WHEN date >= date('now', '-7 days') THEN count ELSE 0 END)
+            FROM downloads 
             WHERE tid = g.tid
             UNION ALL
             SELECT 
-              '30d' as period,
-              SUM(CASE WHEN date >= date('now', '-30 days') THEN count ELSE 0 END) as total
-            FROM downloads
+              '30d',
+              SUM(CASE WHEN date >= date('now', '-30 days') THEN count ELSE 0 END)
+            FROM downloads 
             WHERE tid = g.tid
           )
         ) as period_downloads
@@ -88,6 +91,13 @@ export async function GET(
     // Parse period downloads
     const periodDownloads = game.period_downloads ? JSON.parse(game.period_downloads) : {};
     
+    // Ensure period downloads are properly formatted
+    const formattedPeriodDownloads = {
+      last_72h: Number(periodDownloads['72h'] || 0),
+      last_7d: Number(periodDownloads['7d'] || 0),
+      last_30d: Number(periodDownloads['30d'] || 0)
+    };
+    
     // Convert database row to Game object
     const formattedGame = {
       tid: game.tid,
@@ -98,11 +108,8 @@ export async function GET(
       stats: {
         per_date: JSON.parse(game.per_date.replace(/\\/g, '') || '{}'),
         total_downloads: Number(game.total_downloads || 0),
-        period_downloads: { 
-          last_72h: Number(periodDownloads['72h'] || 0),
-          last_7d: Number(periodDownloads['7d'] || 0),
-          last_30d: Number(periodDownloads['30d'] || 0)
-        }
+        period_downloads: formattedPeriodDownloads,
+        tid_downloads: {}
       },
       info: {
         name: game.name || undefined,

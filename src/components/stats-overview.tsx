@@ -1,13 +1,9 @@
-import { Suspense, use } from 'react';
+import { Suspense } from 'react';
 import { getGlobalStats } from '@/lib/api';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/empty-state';
 import { Clock, Download, History, TrendingUp } from 'lucide-react';
 import pkg from '../../package.json';
-import { Skeleton } from '@/components/ui/skeleton';
-
-// Précharger les stats
-const statsPromise = getGlobalStats();
 
 function StatCard({
   title,
@@ -46,9 +42,8 @@ function StatCard({
   );
 }
 
-async function StatsContent() {
-  // Utiliser les stats préchargées
-  const stats = use(statsPromise);
+export async function StatsOverview() {
+  const stats = await getGlobalStats();
 
   if (!stats || !stats.last_updated) {
     return <EmptyState />;
@@ -58,7 +53,7 @@ async function StatsContent() {
     {
       title: 'Last 72 Hours',
       value: stats.last_72h,
-      subtitle: stats.last_7d ? `${((stats.last_72h / stats.last_7d) * 100).toFixed(1)}% vs last week` : 'No data available',
+      subtitle: stats.last_7d > 0 ? `${((stats.last_72h / stats.last_7d) * 100).toFixed(1)}% vs last week` : 'No data available',
       icon: Clock,
       gradient: {
         border: 'from-indigo-500/20 to-indigo-600/20',
@@ -68,7 +63,7 @@ async function StatsContent() {
     {
       title: 'Last 7 Days',
       value: stats.last_7d,
-      subtitle: stats.last_30d ? `${((stats.last_7d / stats.last_30d) * 100).toFixed(1)}% vs last month` : 'No data available',
+      subtitle: stats.last_30d > 0 ? `${((stats.last_7d / stats.last_30d) * 100).toFixed(1)}% vs last month` : 'No data available',
       icon: TrendingUp,
       gradient: {
         border: 'from-violet-500/20 to-violet-600/20',
@@ -78,7 +73,7 @@ async function StatsContent() {
     {
       title: 'Last 30 Days',
       value: stats.last_30d,
-      subtitle: `Average: ${Math.round((stats.last_30d || 0) / 30).toLocaleString()} per day`,
+      subtitle: `Average: ${Math.round(stats.last_30d / 30).toLocaleString()} per day`,
       icon: Download,
       gradient: {
         border: 'from-purple-500/20 to-purple-600/20',
@@ -121,25 +116,5 @@ async function StatsContent() {
         </div>
       </Card>
     </div>
-  );
-}
-
-export function StatsOverview() {
-  return (
-    <Suspense fallback={
-      <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-indigo-500/20 to-indigo-600/20 p-[1px]">
-        <Card className="relative min-h-[200px] flex items-center justify-center">
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/[0.03] to-indigo-600/[0.03]" />
-          <div className="relative">
-            <div className="w-16 h-16 rounded-full bg-indigo-100 dark:bg-indigo-900/20 flex items-center justify-center mb-4">
-              <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            </div>
-            <p className="text-center text-sm text-slate-600 dark:text-slate-400">Loading statistics...</p>
-          </div>
-        </Card>
-      </div>
-    }>
-      <StatsContent />
-    </Suspense>
   );
 }

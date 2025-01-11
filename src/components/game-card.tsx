@@ -16,19 +16,26 @@ interface GameCardProps {
 }
 
 const RankTrendBadge = ({ change, period }: { change?: number, period?: string }) => {
-  if (change === undefined || period === 'all') return null;
+  if (change === undefined || change === null || period === 'all') return null;
 
   const Icon = change > 0 ? TrendingUp : change < 0 ? TrendingDown : ChevronRight;
-  const baseClasses = 'inline-flex items-center justify-center w-6 h-6 rounded-full absolute top-2 right-2 z-10';
+  const baseClasses = 'inline-flex items-center justify-center w-6 h-6 rounded-full absolute top-4 right-4 z-10';
   const colorClasses = change > 0 
     ? 'bg-emerald-500 text-white'
     : change < 0 
     ? 'bg-rose-500 text-white'
-    : 'bg-slate-500 text-white';
+    : 'bg-slate-400 text-white';
 
   return (
     <span className={`${baseClasses} ${colorClasses}`}>
-      <Icon className="w-4 h-4" />
+      <Icon className="w-4 h-4 stroke-[2.5]" />
+      <span className="sr-only">
+        {change > 0 
+          ? `Improved by ${Math.abs(change)} ranks` 
+          : change < 0 
+          ? `Dropped by ${Math.abs(change)} ranks`
+          : 'Maintained rank'}
+      </span>
     </span>
   );
 };

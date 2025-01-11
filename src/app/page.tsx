@@ -1,15 +1,9 @@
 import { Suspense } from 'react';
-import { getTopGames } from '@/lib/api';
 import { SearchBar } from '@/components/search-bar';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { StatsOverview } from '@/components/stats-overview';
 import { TopGamesSection } from '@/components/top-games-section';
-import { getDbLastModified } from '@/lib/db';
 
-// Generate static page with ISR
-
-// Force dynamic rendering
-// Force dynamic rendering for homepage
 export const dynamic = 'force-dynamic';
 
 export default function Home() {
@@ -17,24 +11,54 @@ export default function Home() {
     <div className="space-y-6">
       <SearchBar />
       
-      <Suspense fallback={<LoadingSpinner />}>
+      <Suspense fallback={
+        <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-indigo-500/20 to-indigo-600/20 p-[1px]">
+          <div className="relative min-h-[200px] flex items-center justify-center">
+            <LoadingSpinner />
+          </div>
+        </div>
+      }>
         <StatsOverview />
       </Suspense>
 
       <div className="space-y-6">
-        <Suspense fallback={<LoadingSpinner />}>
+        <Suspense fallback={
+          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-indigo-500/20 to-indigo-600/20 p-[1px]">
+            <div className="relative min-h-[200px] flex items-center justify-center">
+              <LoadingSpinner />
+            </div>
+          </div>
+        }>
           <TopGamesSection period="72h" />
         </Suspense>
 
-        <Suspense fallback={<LoadingSpinner />}>
+        <Suspense fallback={
+          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-indigo-500/20 to-indigo-600/20 p-[1px]">
+            <div className="relative min-h-[200px] flex items-center justify-center">
+              <LoadingSpinner />
+            </div>
+          </div>
+        }>
           <TopGamesSection period="7d" />
         </Suspense>
 
-        <Suspense fallback={<LoadingSpinner />}>
+        <Suspense fallback={
+          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-indigo-500/20 to-indigo-600/20 p-[1px]">
+            <div className="relative min-h-[200px] flex items-center justify-center">
+              <LoadingSpinner />
+            </div>
+          </div>
+        }>
           <TopGamesSection period="30d" />
         </Suspense>
 
-        <Suspense fallback={<LoadingSpinner />}>
+        <Suspense fallback={
+          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-indigo-500/20 to-indigo-600/20 p-[1px]">
+            <div className="relative min-h-[200px] flex items-center justify-center">
+              <LoadingSpinner />
+            </div>
+          </div>
+        }>
           <TopGamesSection period="all" />
         </Suspense>
       </div>

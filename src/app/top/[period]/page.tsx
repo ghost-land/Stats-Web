@@ -121,10 +121,7 @@ export default async function TopGamesPage({
                 {displayGames.map((game, index) => {
                   const globalIndex = startIndex + index;
                   const currentRank = globalIndex + 1;
-                  const ranking = rankings.get(game.tid);
-                  const rankChange = period === 'all' ? undefined : (
-                    ranking ? ranking.change : 0
-                  );
+                  const rankChange = period === 'all' ? undefined : game.stats.rank_change;
 
                   return (
                     <Suspense key={game.tid} fallback={<LoadingSpinner />}>

@@ -12,10 +12,9 @@ interface PeriodStats {
   gradient: string;
   downloads: number;
   rank?: {
-    current: number | null;
-    previous: number | null;
+    rank: number | null;
     change: number | null;
-  };
+  } | null;
   comparison?: {
     value: number;
     label: string;
@@ -23,26 +22,26 @@ interface PeriodStats {
 }
 
 const RankBadge = ({ change }: { change: number | null }) => {
-  if (change === null) return null;
+  if (change === null || change === 0) return null;
 
-  const Icon = change > 0 ? TrendingUp : change < 0 ? TrendingDown : ChevronRight;
+  // Un changement positif signifie une amélioration du rang (monter dans le classement)
+  const Icon = change > 0 ? TrendingUp : TrendingDown;
   const baseClasses = 'inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium rounded border ml-2';
   const colorClasses = change > 0 
     ? 'bg-emerald-500 text-white border-emerald-500'
-    : change < 0 
-    ? 'bg-rose-500 text-white border-rose-500'
-    : 'bg-slate-500 text-white border-slate-500';
+    : 'bg-rose-500 text-white border-rose-500';
 
   return (
     <span className={`${baseClasses} ${colorClasses}`}>
       <Icon className="w-3 h-3" />
-      {change > 0 ? `+${change}` : change < 0 ? `${change}` : '='}
+      {change > 0 ? `+${Math.abs(change)}` : `-${Math.abs(change)}`}
     </span>
   );
 };
 
 export async function GameStats({ game }: { game: Game }) {
   if (!game?.stats) {
+    console.log('[Component] No game stats available');
     return (
       <EmptyState 
         title="No Game Data"
@@ -55,9 +54,17 @@ export async function GameStats({ game }: { game: Game }) {
   const last7d = game.stats.period_downloads?.last_7d || 0;
   const last30d = game.stats.period_downloads?.last_30d || 0;
 
+  console.log('[Component] Period downloads:', {
+    last72h,
+    last7d,
+    last30d,
+    total: game.stats.total_downloads
+  });
+
   // Get rankings for all periods
   const rankings = await getGameRankings(game.tid);
 
+  console.log('[Component] Rankings:', rankings);
   const periods: PeriodStats[] = [
     {
       period: '72h',
@@ -65,9 +72,12 @@ export async function GameStats({ game }: { game: Game }) {
       label: 'Last 72 Hours',
       gradient: 'from-indigo-500 to-indigo-600',
       downloads: last72h,
-      rank: rankings?.['72h'],
+      rank: rankings['72h'] ? {
+        rank: rankings['72h'].current,
+        change: rankings['72h'].change
+      } : null,
       comparison: {
-        value: (last72h / last7d) * 100,
+        value: (last72h / (last7d || 1)) * 100,
         label: 'vs last week'
       }
     },
@@ -77,9 +87,12 @@ export async function GameStats({ game }: { game: Game }) {
       label: 'Last 7 Days',
       gradient: 'from-violet-500 to-violet-600',
       downloads: last7d,
-      rank: rankings?.['7d'],
+      rank: rankings['7d'] ? {
+        rank: rankings['7d'].current,
+        change: rankings['7d'].change
+      } : null,
       comparison: {
-        value: (last7d / last30d) * 100,
+        value: (last7d / (last30d || 1)) * 100,
         label: 'vs last month'
       }
     },
@@ -89,7 +102,10 @@ export async function GameStats({ game }: { game: Game }) {
       label: 'Last 30 Days',
       gradient: 'from-purple-500 to-purple-600',
       downloads: last30d,
-      rank: rankings?.['30d'],
+      rank: rankings['30d'] ? {
+        rank: rankings['30d'].current,
+        change: rankings['30d'].change
+      } : null,
       comparison: {
         value: last30d / 30,
         label: 'daily average'
@@ -117,10 +133,10 @@ export async function GameStats({ game }: { game: Game }) {
                   <p className="text-xl font-semibold text-white">
                     {downloads.toLocaleString()}
                   </p>
-                  {rank && rank.current !== null && rank.current > 0 && (
+                  {rank && rank.rank !== null && rank.rank > 0 && (
                     <p className="mt-1 text-sm text-white/90 flex items-center">
-                      Rank: #{rank.current}
-                      {rank.change !== null && rank.change !== undefined && (
+                      Rank: #{rank.rank}
+                      {rank.change !== null && (
                         <RankBadge change={rank.change} />
                       )}
                     </p>
