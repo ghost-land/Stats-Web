@@ -3,10 +3,12 @@ import { getTopGames } from '@/lib/api';
 import { GameCard } from '@/components/game-card';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/empty-state';
+import { FilterButton } from '@/components/filter-button';
 import { getGamesRankings } from '@/lib/api';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Pagination } from '@/components/pagination';
 import { notFound } from 'next/navigation';
+import { TopGamesHeader } from '@/components/top-games-header';
 import { getDbLastModified } from '@/lib/db';
 import { Metadata } from 'next';
 
@@ -66,7 +68,7 @@ export default async function TopGamesPage({
   searchParams 
 }: { 
   params: { period: string },
-  searchParams: { page?: string }
+  searchParams: { page?: string; type?: string }
 }) {
   if (!isPeriodValid(params.period)) {
     notFound();
@@ -74,10 +76,11 @@ export default async function TopGamesPage({
 
   const period = params.period as Period;
   const page = Math.max(1, parseInt(searchParams.page || '1'));
+  const contentType = (searchParams.type as 'base' | 'update' | 'dlc' | 'all') || 'base';
   
   try {
     // Get games for the period
-    const games = await getTopGames(period, true);
+    const { games, total } = await getTopGames(period, contentType, page, GAMES_PER_PAGE);
     
     // Get rankings for all displayed games at once
     const rankings = period === 'all' ? new Map() : 
@@ -86,7 +89,7 @@ export default async function TopGamesPage({
         period
       );
     
-    if (!games || games.length === 0) {
+    if (!games || total === 0) {
       return (
         <EmptyState 
           title="No Games Found"
@@ -95,9 +98,7 @@ export default async function TopGamesPage({
       );
     }
 
-    const totalPages = Math.ceil(games.length / GAMES_PER_PAGE);
-    const startIndex = (page - 1) * GAMES_PER_PAGE;
-    const displayGames = games.slice(startIndex, startIndex + GAMES_PER_PAGE);
+    const totalPages = Math.ceil(total / GAMES_PER_PAGE);
 
     return (
       <div className="space-y-6">
@@ -106,20 +107,18 @@ export default async function TopGamesPage({
             <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/[0.03] to-indigo-600/[0.03]" />
             
             <div className="relative p-6 bg-gradient-to-r from-indigo-500 to-indigo-600">
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-white">
-                  Top Games - {periodTitles[period]}
-                </h2>
-                <div className="text-white/80">
-                  Showing {displayGames.length} of {games.length} games
-                </div>
-              </div>
+              <TopGamesHeader 
+                title={`${contentType === 'all' ? 'Top Content' : contentType === 'base' ? 'Top Games' : contentType === 'update' ? 'Top Updates' : 'Top DLC'} - ${periodTitles[period]}`}
+                total={total}
+                contentType={contentType}
+                page={page}
+              />
             </div>
             
             <div className="relative p-8">
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-8">
-                {displayGames.map((game, index) => {
-                  const globalIndex = startIndex + index;
+                {games.map((game, index) => {
+                  const globalIndex = ((page - 1) * GAMES_PER_PAGE) + index;
                   const currentRank = globalIndex + 1;
                   const rankChange = period === 'all' ? undefined : game.stats.rank_change;
 

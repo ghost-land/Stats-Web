@@ -1,21 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db';
-
-interface DbGame {
-  tid: string;
-  name: string | null;
-  version: string | null;
-  size: number | null;
-  release_date: string | null;
-  is_base: number;
-  is_update: number;
-  is_dlc: number;
-  base_tid: string | null;
-  total_downloads: number;
-  per_date: string;
-}
-
-const SEARCH_LIMIT = 100; // Limit search results to prevent performance issues
+import type { DbGame } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 3600; // Revalidate every hour
@@ -23,9 +8,13 @@ export const revalidate = 3600; // Revalidate every hour
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get('q')?.toLowerCase().trim() || '';
+  const contentType = (searchParams.get('type') || 'base') as 'base' | 'update' | 'dlc' | 'all';
+  const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+  const limit = Math.max(1, parseInt(searchParams.get('limit') || '24'));
+  const offset = (page - 1) * limit;
 
   if (!query) {
-    return NextResponse.json([]);
+    return NextResponse.json({ games: [], total: 0 });
   }
 
   let db = null;
@@ -35,6 +24,22 @@ export async function GET(request: Request) {
     if (!db) {
       throw new Error('Database not available');
     }
+
+    // Get total count first
+    const typeCondition = contentType === 'all' ? '1=1' : 
+      contentType === 'base' ? 'g.is_base = 1' : 
+      contentType === 'update' ? 'g.is_update = 1' : 
+      'g.is_dlc = 1';
+
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM games g
+      WHERE (
+        LOWER(g.tid) LIKE ? OR 
+        LOWER(COALESCE(g.name, '')) LIKE ?
+      ) AND ${typeCondition}
+    `;
+    const { total } = db.prepare(countQuery).get(`%${query}%`, `%${query}%`) as { total: number };
 
     // Search games by name or TID with period downloads
     const games = db.prepare(`
@@ -49,11 +54,11 @@ export async function GET(request: Request) {
       WHERE (
         LOWER(g.tid) LIKE ? OR 
         LOWER(COALESCE(g.name, '')) LIKE ?
-      ) 
+      ) AND ${typeCondition}
       GROUP BY g.tid
       ORDER BY g.total_downloads DESC
-      LIMIT ?
-    `).all(`%${query}%`, `%${query}%`, SEARCH_LIMIT) as DbGame[];
+      LIMIT ? OFFSET ?
+    `).all(`%${query}%`, `%${query}%`, limit, offset) as DbGame[];
 
     // Convert database rows to Game objects
     const formattedGames = games.map(row => ({
@@ -75,7 +80,7 @@ export async function GET(request: Request) {
       }
     }));
 
-    return NextResponse.json(formattedGames);
+    return NextResponse.json({ games: formattedGames, total });
   } catch (error) {
     console.error('Error reading database:', error);
     return NextResponse.json({ 

@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
 
 interface PaginationProps {
   currentPage: number;
@@ -11,8 +12,18 @@ interface PaginationProps {
 }
 
 export function Pagination({ currentPage, totalPages, period }: PaginationProps) {
+  const [inputValue, setInputValue] = useState('');
+  const [showInput, setShowInput] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const pathname = usePathname() || '';
   const searchParams = useSearchParams();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (showInput && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [showInput]);
 
   const createPageURL = (pageNumber: number | string) => {
     const params = new URLSearchParams();
@@ -23,6 +34,16 @@ export function Pagination({ currentPage, totalPages, period }: PaginationProps)
     }
     params.set('page', pageNumber.toString());
     return `${pathname}?${params.toString()}`;
+  };
+
+  const handlePageSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const pageNumber = parseInt(inputValue);
+    if (!isNaN(pageNumber) && pageNumber >= 1 && pageNumber <= totalPages) {
+      router.push(createPageURL(pageNumber));
+      setShowInput(false);
+      setInputValue('');
+    }
   };
 
   // Generate page numbers to show
@@ -71,12 +92,31 @@ export function Pagination({ currentPage, totalPages, period }: PaginationProps)
 
       {getPageNumbers().map((pageNumber, i) => (
         pageNumber === '...' ? (
-          <span
-            key={`dots-${i}`}
-            className="px-4 py-2 text-gray-400"
-          >
-            ...
-          </span>
+          showInput ? (
+            <form key={`input-${i}`} onSubmit={handlePageSubmit} className="inline-block">
+              <input
+                ref={inputRef}
+                type="number"
+                min="1"
+                max={totalPages}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onBlur={() => {
+                  if (!inputValue) setShowInput(false);
+                }}
+                className="w-16 px-2 py-1 text-center rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder={`1-${totalPages}`}
+              />
+            </form>
+          ) : (
+            <button
+              key={`dots-${i}`}
+              onClick={() => setShowInput(true)}
+              className="px-4 py-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+            >
+              ...
+            </button>
+          )
         ) : (
           <Link
             key={pageNumber}

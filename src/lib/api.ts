@@ -2,6 +2,64 @@ import { cache } from 'react';
 import type { Game, GlobalStats, DbGame } from './types';
 import { getDatabase } from './db';
 
+// Get home page rankings for a specific period
+export const getHomePageRankings = cache(async (period: '72h' | '7d' | '30d' | 'all'): Promise<Game[]> => {
+  try {
+    console.log(`[API] Fetching home page rankings for period: ${period}`);
+    const db = await getDatabase();
+    if (!db) {
+      throw new Error('Database connection failed');
+    }
+    
+    const startTime = performance.now();
+    const query = `
+      SELECT 
+        g.*,
+        json_group_object(date, d.count) as per_date,
+        h.downloads as period_downloads, 
+        cr.rank as current_rank,
+        cr.rank_change
+      FROM home_page_rankings h
+      JOIN games g ON h.tid = g.tid
+      LEFT JOIN current_rankings cr ON g.tid = cr.tid AND cr.period = ? AND cr.content_type = 'base'
+      LEFT JOIN downloads d ON g.tid = d.tid
+      WHERE h.period = ?
+      GROUP BY g.tid
+      ORDER BY h.rank ASC
+    `;
+    
+    const results = db.prepare(query).all(period, period) as DbGame[];
+    
+    // Convert database rows to Game objects
+    const formattedGames = results.map(row => ({
+      tid: row.tid,
+      is_base: Boolean(row.is_base),
+      is_update: Boolean(row.is_update),
+      is_dlc: Boolean(row.is_dlc),
+      base_tid: row.base_tid,
+      stats: {
+        per_date: row.per_date ? JSON.parse(row.per_date) : {},
+        total_downloads: Number(row.total_downloads || 0),
+        rank_change: row.rank_change !== undefined && row.rank_change !== null ? Number(row.rank_change) : undefined,
+        tid_downloads: {}
+      },
+      info: {
+        name: row.name || undefined,
+        version: row.version || undefined,
+        size: row.size ? Number(row.size) : undefined,
+        releaseDate: row.release_date || undefined
+      }
+    }));
+
+    const duration = ((performance.now() - startTime) / 1000).toFixed(2);
+    console.log(`[API] Processed home page rankings for ${period} in ${duration}s`);
+    
+    return formattedGames;
+  } catch (error) {
+    console.error('Error fetching home page rankings:', error);
+    return [];
+  }
+});
 // Get global statistics
 export const getGlobalStats = cache(async () => {
   try {
@@ -69,15 +127,36 @@ export const getGlobalStats = cache(async () => {
 });
 
 // Get top games for a specific period
-export const getTopGames = cache(async (period: '72h' | '7d' | '30d' | 'all', showAll = false): Promise<Game[]> => {
+export const getTopGames = cache(async (
+  period: '72h' | '7d' | '30d' | 'all',
+  contentType: 'base' | 'update' | 'dlc' | 'all' = 'base',
+  page = 1,
+  limit = 24
+): Promise<{ games: Game[]; total: number }> => {
   try {
-    console.log(`[API] Fetching top games for period: ${period}`);
+    console.log(`[API] Fetching top games for period: ${period}, type: ${contentType}`);
     const db = await getDatabase();
     if (!db) {
       throw new Error('Database connection failed');
     }
     
     const startTime = performance.now();
+    const typeCondition = contentType === 'all' ? '1=1' : 
+      contentType === 'base' ? 'g.is_base = 1' : 
+      contentType === 'update' ? 'g.is_update = 1' : 
+      'g.is_dlc = 1';
+
+    // Calculate offset
+    const offset = (page - 1) * limit;
+
+    // Get total count first
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM games g
+      WHERE ${typeCondition}
+    `;
+    const { total } = db.prepare(countQuery).get() as { total: number };
+
     const query = period === 'all'
       ? `
         SELECT 
@@ -86,9 +165,10 @@ export const getTopGames = cache(async (period: '72h' | '7d' | '30d' | 'all', sh
           g.total_downloads as period_downloads
         FROM games g
         LEFT JOIN downloads d ON g.tid = d.tid
-        WHERE g.is_base = 1
+        WHERE ${typeCondition}
         GROUP BY g.tid
         ORDER BY g.total_downloads DESC
+        LIMIT ? OFFSET ?
       `
       : `
         SELECT 
@@ -100,16 +180,17 @@ export const getTopGames = cache(async (period: '72h' | '7d' | '30d' | 'all', sh
           cr.downloads as period_downloads
         FROM games g
         LEFT JOIN downloads d ON g.tid = d.tid
-        LEFT JOIN current_rankings cr ON g.tid = cr.tid AND cr.period = ?
-        WHERE g.is_base = 1
+        LEFT JOIN current_rankings cr ON g.tid = cr.tid AND cr.period = ? AND cr.content_type = ?
+        WHERE ${typeCondition}
         GROUP BY g.tid
         ORDER BY cr.rank ASC NULLS LAST
+        LIMIT ? OFFSET ?
       `;
     const results = period === 'all' 
-      ? db.prepare(query).all() as DbGame[]
-      : db.prepare(query).all(period) as DbGame[];
+      ? db.prepare(query).all(limit, offset) as DbGame[]
+      : db.prepare(query).all(period, contentType, limit, offset) as DbGame[];
     
-    console.log(`[API] Found ${results.length} games for period ${period}`);
+    console.log(`[API] Found ${results.length} ${contentType} games for period ${period}`);
     
     // Convert database rows to Game objects
     const formattedGames = results.map(row => ({
@@ -135,15 +216,12 @@ export const getTopGames = cache(async (period: '72h' | '7d' | '30d' | 'all', sh
     const duration = ((performance.now() - startTime) / 1000).toFixed(2);
     console.log(`[API] Processed top games for ${period} in ${duration}s`);
     
-    // Log ranking changes for debugging
-    formattedGames.slice(0, 10).forEach((game, index) => {
-      console.log(`[API] Game #${index + 1}: ${game.tid} (${game.info?.name || 'Unknown'}) - Change: ${game.stats.rank_change || 'N/A'}`);
-    });
+    console.log(`[API] Found ${formattedGames.length} ${contentType} games for period ${period}`);
 
-    return formattedGames;
+    return { games: formattedGames, total };
   } catch (error) {
     console.error('Error fetching top games:', error);
-    return [];
+    return { games: [], total: 0 };
   }
 });
 
@@ -219,6 +297,7 @@ export const getGamesRankings = cache(async (tids: string[], period: '72h' | '7d
   try {
     console.log(`[API] Fetching rankings for ${tids.length} games in period ${period}`);
     const startTime = performance.now();
+    const BATCH_SIZE = 500; // Process 500 games at a time
 
     interface RankingResult {
       tid: string;
@@ -231,6 +310,12 @@ export const getGamesRankings = cache(async (tids: string[], period: '72h' | '7d
       throw new Error('Database connection failed');
     }
     
+    const rankings = new Map();
+    
+    // Process tids in batches
+    for (let i = 0; i < tids.length; i += BATCH_SIZE) {
+      const batchTids = tids.slice(i, i + BATCH_SIZE);
+      
     const query = period === 'all'
       ? `
         WITH rankings AS (
@@ -241,7 +326,7 @@ export const getGamesRankings = cache(async (tids: string[], period: '72h' | '7d
           FROM games
           WHERE is_base = 1
         )
-        SELECT * FROM rankings WHERE tid IN (${tids.map(() => '?').join(',')})
+        SELECT * FROM rankings WHERE tid IN (${batchTids.map(() => '?').join(',')})
       `
       : `
         WITH period_downloads AS (
@@ -259,17 +344,22 @@ export const getGamesRankings = cache(async (tids: string[], period: '72h' | '7d
           LEFT JOIN period_downloads pd ON g.tid = pd.tid
           WHERE g.is_base = 1
         )
-        SELECT * FROM rankings WHERE tid IN (${tids.map(() => '?').join(',')})
+        SELECT * FROM rankings WHERE tid IN (${batchTids.map(() => '?').join(',')})
       `;
-    const results = db.prepare(query).all(tids) as RankingResult[];
-    return new Map(results.map(row => [
-      row.tid,
-      {
-        current: row.current_rank,
-        previous: row.previous_rank,
-        change: row.previous_rank - row.current_rank
-      }
-    ]));
+      
+      const results = db.prepare(query).all(batchTids) as RankingResult[];
+      
+      // Add batch results to rankings map
+      results.forEach(row => {
+        rankings.set(row.tid, {
+          current: row.current_rank,
+          previous: row.previous_rank,
+          change: row.previous_rank - row.current_rank
+        });
+      });
+    }
+
+    return rankings;
   } catch (error) {
     console.error('Error fetching games rankings:', error);
     return new Map();

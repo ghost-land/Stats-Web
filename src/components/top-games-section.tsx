@@ -1,4 +1,4 @@
-import { getTopGames } from '@/lib/api';
+import { getHomePageRankings } from '@/lib/api';
 import { GameCard } from '@/components/game-card';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/empty-state';
@@ -52,7 +52,7 @@ export async function TopGamesSection({
   period: keyof typeof periodConfig,
 }) {
   try {
-    const games = await getTopGames(period);
+    const games = await getHomePageRankings(period);
     const { title, icon: Icon, gradient } = periodConfig[period];
     
     console.log('[TopGamesSection] Period:', period);
@@ -65,7 +65,7 @@ export async function TopGamesSection({
       rankChange: g.stats.rank_change
     })));
 
-    if (!games || games.length === 0) {
+    if (games.length === 0) {
       return (
         <EmptyState 
           title="No Games Found"

@@ -7,7 +7,9 @@ const fetch = require('node-fetch').default;
 const BATCH_SIZE = 1000; // Process files in batches of 1000
 
 // Periods for the rankings
-const PERIODS = ['72h', '7d', '30d', 'all'];
+const PERIODS = Object.freeze(['72h', '7d', '30d', 'all']);
+const CONTENT_TYPES = Object.freeze(['base', 'update', 'dlc']);
+const HOME_PAGE_LIMIT = 12;
 
 // Configuration
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
@@ -73,123 +75,42 @@ async function fetchGameInfo() {
   }
 }
 
-async function initializeDatabase() {
-  // Ensure public directory exists
-  await fsPromises.mkdir(path.dirname(DB_PATH), { recursive: true });
-  
-  const db = getDatabase();
-  
-  // Create tables and indexes
-  const statements = [
-    `CREATE TABLE IF NOT EXISTS games (
-      tid TEXT PRIMARY KEY,
-      name TEXT,
-      version TEXT,
-      size INTEGER,
-      release_date TEXT,
-      is_base BOOLEAN,
-      is_update BOOLEAN,
-      is_dlc BOOLEAN,
-      base_tid TEXT,
-      total_downloads INTEGER,
-      last_updated TEXT
-    )`,
-
-    `CREATE TABLE IF NOT EXISTS downloads (
-      tid TEXT,
-      date TEXT,
-      count INTEGER,
-      PRIMARY KEY (tid, date),
-      FOREIGN KEY (tid) REFERENCES games(tid)
-    )`,
-
-    // Rankings history table
-    `CREATE TABLE IF NOT EXISTS rankings_history (
-      tid TEXT NOT NULL,
-      period TEXT NOT NULL CHECK (period IN ('72h', '7d', '30d', 'all')),
-      rank INTEGER NOT NULL,
-      downloads INTEGER NOT NULL,
-      date TEXT NOT NULL,
-      PRIMARY KEY (tid, period, date),
-      FOREIGN KEY (tid) REFERENCES games(tid)
-    )`,
-
-    // Current rankings table
-    `CREATE TABLE IF NOT EXISTS current_rankings (
-      tid TEXT NOT NULL,
-      period TEXT NOT NULL CHECK (period IN ('72h', '7d', '30d', 'all')),
-      rank INTEGER NOT NULL,
-      previous_rank INTEGER,
-      rank_change INTEGER,
-      downloads INTEGER NOT NULL,
-      previous_downloads INTEGER,
-      last_updated TEXT NOT NULL,
-      PRIMARY KEY (tid, period),
-      FOREIGN KEY (tid) REFERENCES games(tid)
-    )`,
-
-    `CREATE TABLE IF NOT EXISTS global_stats (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      last_72h INTEGER NOT NULL DEFAULT 0,
-      last_7d INTEGER NOT NULL DEFAULT 0,
-      last_30d INTEGER NOT NULL DEFAULT 0,
-      all_time INTEGER NOT NULL DEFAULT 0,
-      last_updated TEXT NOT NULL
-    )`,
-
-    `INSERT OR IGNORE INTO global_stats (id, last_72h, last_7d, last_30d, all_time, last_updated)
-    VALUES (1, 0, 0, 0, 0, datetime('now'))`,
-
-    `CREATE INDEX IF NOT EXISTS idx_downloads_date ON downloads(date)`,
-    `CREATE INDEX IF NOT EXISTS idx_games_base ON games(is_base)`,
-    `CREATE INDEX IF NOT EXISTS idx_games_downloads ON games(total_downloads)`,
-    `CREATE INDEX IF NOT EXISTS idx_rankings_history_date ON rankings_history(date)`,
-    `CREATE INDEX IF NOT EXISTS idx_rankings_history_period ON rankings_history(period)`,
-    `CREATE INDEX IF NOT EXISTS idx_current_rankings_period ON current_rankings(period)`,
-    `CREATE INDEX IF NOT EXISTS idx_current_rankings_rank ON current_rankings(rank)`
-  ];
-
-  // Execute each statement separately
-  for (const sql of statements) {
-    db.prepare(sql).run();
-  }
-
-  return db;
-}
-
-// Function to calculate rankings for a specific period
-async function calculatePeriodRankings(db, period) {
-  console.log(`\nCalculating rankings for period: ${period}`);
+// Calculate rankings for a specific period and content type
+async function calculatePeriodRankings(db, period, contentType) {
+  console.log(`\nCalculating rankings for period: ${period}, type: ${contentType || 'all'}`);
   const startTime = performance.now();
-  const currentDate = new Date().toISOString().split('T')[0];
 
   const transaction = db.transaction(() => {
     // Calculate current period downloads for each game
     const currentPeriodQuery = period === 'all' 
-      ? `SELECT tid, total_downloads as downloads FROM games WHERE is_base = 1`
+      ? `
+        SELECT tid, total_downloads as downloads
+        FROM games
+        WHERE ${contentType === 'base' ? 'is_base = 1' : contentType === 'update' ? 'is_update = 1' : 'is_dlc = 1'}
+      `
       : `
         SELECT 
           g.tid,
           COALESCE(SUM(d.count), 0) as downloads
         FROM games g
         LEFT JOIN downloads d ON g.tid = d.tid
-        WHERE g.is_base = 1 
-        AND date >= date('now', '-${period === '72h' ? '3' : period === '7d' ? '7' : '30'} days')
+        WHERE date >= date('now', '-${period === '72h' ? '3' : period === '7d' ? '7' : '30'} days')
+        AND ${contentType === 'base' ? 'g.is_base = 1' : contentType === 'update' ? 'g.is_update = 1' : 'g.is_dlc = 1'}
         GROUP BY g.tid
       `;
 
-    // Calculate previous period downloads for each game
+    // Calculate previous period downloads
     const previousPeriodQuery = period === 'all'
-      ? `SELECT tid, total_downloads as downloads FROM games WHERE is_base = 1`
+      ? currentPeriodQuery
       : `
         SELECT 
           g.tid,
           COALESCE(SUM(d.count), 0) as downloads
         FROM games g
         LEFT JOIN downloads d ON g.tid = d.tid
-        WHERE g.is_base = 1 
-        AND date >= date('now', '-${period === '72h' ? '6' : period === '7d' ? '14' : '60'} days')
-        AND date < date('now', '-${period === '72h' ? '3' : period === '7d' ? '7' : '30'} days')
+        WHERE date >= date('now', '-${period === '72h' ? '6' : period === '7d' ? '14' : '60'} days')
+          AND date < date('now', '-${period === '72h' ? '3' : period === '7d' ? '7' : '30'} days')
+        AND ${contentType === 'base' ? 'g.is_base = 1' : contentType === 'update' ? 'g.is_update = 1' : 'g.is_dlc = 1'}
         GROUP BY g.tid
       `;
 
@@ -230,18 +151,22 @@ async function calculatePeriodRankings(db, period) {
       previousRankings.map(r => [r.tid, r])
     );
 
-    // Clear current rankings for this period
-    db.prepare('DELETE FROM current_rankings WHERE period = ?').run(period);
+    // Clear current rankings for this period and type
+    db.prepare(`
+      DELETE FROM current_rankings 
+      WHERE period = ? AND content_type = ?
+    `).run(period, contentType);
 
     // Insert rankings history
     const insertRankingHistory = db.prepare(`
       INSERT INTO rankings_history (
         tid,
         period,
+        content_type,
         rank,
         downloads,
         date
-      ) VALUES (?, ?, ?, ?, date('now'))
+      ) VALUES (?, ?, ?, ?, ?, date('now'))
     `);
 
     // Insert new rankings for each game
@@ -252,16 +177,18 @@ async function calculatePeriodRankings(db, period) {
         INSERT INTO current_rankings (
           tid,
           period,
+          content_type,
           rank,
           previous_rank,
           rank_change,
           downloads,
           previous_downloads,
           last_updated
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       `).run(
         tid,
         period,
+        contentType,
         current.rank,
         previous?.rank || null,
         previous ? previous.rank - current.rank : 0,
@@ -273,41 +200,11 @@ async function calculatePeriodRankings(db, period) {
       insertRankingHistory.run(
         tid,
         period,
+        contentType,
         current.rank,
         current.downloads
       );
     }
-
-    // Log some statistics
-    const stats = db.prepare(`
-      SELECT 
-        COUNT(*) as total_rankings,
-        COUNT(CASE WHEN rank_change > 0 THEN 1 END) as moved_up,
-        COUNT(CASE WHEN rank_change < 0 THEN 1 END) as moved_down,
-        COUNT(CASE WHEN rank_change = 0 THEN 1 END) as unchanged
-      FROM current_rankings
-      WHERE period = ?
-    `).get(period);
-
-    console.log(`\nRankings statistics for ${period}:`);
-    console.log(`- Total rankings: ${stats.total_rankings}`);
-    console.log(`- Moved up: ${stats.moved_up}`);
-    console.log(`- Moved down: ${stats.moved_down}`);
-    console.log(`- Unchanged: ${stats.unchanged}`);
-
-    // Log biggest changes
-    const topChanges = db.prepare(`
-      SELECT tid, rank, previous_rank, rank_change
-      FROM current_rankings
-      WHERE period = ? AND rank_change != 0
-      ORDER BY ABS(rank_change) DESC
-      LIMIT 5
-    `).all(period);
-
-    console.log('\nBiggest ranking changes:');
-    topChanges.forEach(change => {
-      console.log(`- ${change.tid}: ${change.previous_rank} → ${change.rank} (${change.rank_change > 0 ? '+' : ''}${change.rank_change})`);
-    });
   });
 
   // Execute transaction
@@ -315,6 +212,121 @@ async function calculatePeriodRankings(db, period) {
 
   const duration = ((performance.now() - startTime) / 1000).toFixed(2);
   console.log(`\nRankings calculated in ${duration}s`);
+}
+
+async function initializeDatabase() {
+  // Ensure public directory exists
+  await fsPromises.mkdir(path.dirname(DB_PATH), { recursive: true });
+  
+  const db = getDatabase();
+  
+  // Drop existing rankings tables to recreate with new schema
+  const dropStatements = [
+    `DROP TABLE IF EXISTS rankings_history`,
+    `DROP TABLE IF EXISTS current_rankings`
+  ];
+
+  // Drop home page rankings table if it exists
+  dropStatements.push(`DROP TABLE IF EXISTS home_page_rankings`);
+
+  // Execute drop statements
+  for (const sql of dropStatements) {
+    db.prepare(sql).run();
+  }
+
+  // Create tables and indexes
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS games (
+      tid TEXT PRIMARY KEY,
+      name TEXT,
+      version TEXT,
+      size INTEGER,
+      release_date TEXT,
+      is_base BOOLEAN,
+      is_update BOOLEAN,
+      is_dlc BOOLEAN,
+      base_tid TEXT,
+      total_downloads INTEGER,
+      last_updated TEXT
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS downloads (
+      tid TEXT,
+      date TEXT,
+      count INTEGER,
+      PRIMARY KEY (tid, date),
+      FOREIGN KEY (tid) REFERENCES games(tid)
+    )`,
+
+    // Rankings history table
+    `CREATE TABLE IF NOT EXISTS rankings_history (
+      tid TEXT NOT NULL,
+      period TEXT NOT NULL CHECK (period IN ('72h', '7d', '30d', 'all')),
+      content_type TEXT NOT NULL CHECK (content_type IN ('base', 'update', 'dlc')),
+      rank INTEGER NOT NULL,
+      downloads INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      PRIMARY KEY (tid, period, content_type, date),
+      FOREIGN KEY (tid) REFERENCES games(tid)
+    )`,
+
+    // Current rankings table
+    `CREATE TABLE IF NOT EXISTS current_rankings (
+      tid TEXT NOT NULL,
+      period TEXT NOT NULL CHECK (period IN ('72h', '7d', '30d', 'all')),
+      content_type TEXT NOT NULL CHECK (content_type IN ('base', 'update', 'dlc')),
+      rank INTEGER NOT NULL,
+      previous_rank INTEGER,
+      rank_change INTEGER,
+      downloads INTEGER NOT NULL,
+      previous_downloads INTEGER,
+      last_updated TEXT NOT NULL,
+      PRIMARY KEY (tid, period, content_type),
+      FOREIGN KEY (tid) REFERENCES games(tid)
+    )`,
+
+    // Home page rankings table
+    `CREATE TABLE IF NOT EXISTS home_page_rankings (
+      tid TEXT NOT NULL,
+      period TEXT NOT NULL CHECK (period IN ('72h', '7d', '30d', 'all')),
+      rank INTEGER NOT NULL,
+      downloads INTEGER NOT NULL,
+      last_updated TEXT NOT NULL,
+      PRIMARY KEY (tid, period),
+      FOREIGN KEY (tid) REFERENCES games(tid)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS global_stats (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      last_72h INTEGER NOT NULL DEFAULT 0,
+      last_7d INTEGER NOT NULL DEFAULT 0,
+      last_30d INTEGER NOT NULL DEFAULT 0,
+      all_time INTEGER NOT NULL DEFAULT 0,
+      last_updated TEXT NOT NULL
+    )`,
+
+    `INSERT OR IGNORE INTO global_stats (id, last_72h, last_7d, last_30d, all_time, last_updated)
+    VALUES (1, 0, 0, 0, 0, datetime('now'))`,
+
+    `CREATE INDEX IF NOT EXISTS idx_downloads_date ON downloads(date)`,
+    `CREATE INDEX IF NOT EXISTS idx_games_base ON games(is_base)`,
+    `CREATE INDEX IF NOT EXISTS idx_games_downloads ON games(total_downloads)`,
+    `CREATE INDEX IF NOT EXISTS idx_rankings_history_date ON rankings_history(date)`,
+    `CREATE INDEX IF NOT EXISTS idx_rankings_history_period ON rankings_history(period)`,
+    `CREATE INDEX IF NOT EXISTS idx_rankings_history_type ON rankings_history(content_type)`,
+    `CREATE INDEX IF NOT EXISTS idx_current_rankings_period ON current_rankings(period)`,
+    `CREATE INDEX IF NOT EXISTS idx_current_rankings_type ON current_rankings(content_type)`,
+    `CREATE INDEX IF NOT EXISTS idx_current_rankings_rank ON current_rankings(rank)`,
+    `CREATE INDEX IF NOT EXISTS idx_home_page_rankings_period ON home_page_rankings(period)`,
+    `CREATE INDEX IF NOT EXISTS idx_home_page_rankings_rank ON home_page_rankings(rank)`
+  ];
+
+  // Execute each statement separately
+  for (const sql of statements) {
+    db.prepare(sql).run();
+  }
+
+  return db;
 }
 
 async function processBatch(db, files, gameInfo, startIdx) {
@@ -451,6 +463,79 @@ async function calculatePeriodStats(db) {
   console.log(`\nStatistics calculated in ${duration}s`);
 }
 
+// Calculate home page rankings for a specific period
+async function calculateHomePageRankings(db, period) {
+  console.log(`\nCalculating home page rankings for period: ${period}`);
+  const startTime = performance.now();
+
+  const transaction = db.transaction(() => {
+    // Get top 12 base games for the period
+    const query = period === 'all'
+      ? `
+        SELECT 
+          g.tid,
+          g.total_downloads as downloads,
+          ROW_NUMBER() OVER (ORDER BY g.total_downloads DESC) as rank
+        FROM games g
+        WHERE g.is_base = 1
+        ORDER BY g.total_downloads DESC
+        LIMIT ${HOME_PAGE_LIMIT}
+      `
+      : `
+        WITH period_downloads AS (
+          SELECT 
+            g.tid,
+            COALESCE(SUM(d.count), 0) as downloads
+          FROM games g
+          LEFT JOIN downloads d ON g.tid = d.tid
+          WHERE g.is_base = 1
+          AND date >= date('now', ?)
+          GROUP BY g.tid
+        )
+        SELECT 
+          pd.tid,
+          pd.downloads,
+          ROW_NUMBER() OVER (ORDER BY pd.downloads DESC) as rank
+        FROM period_downloads pd
+        ORDER BY pd.downloads DESC
+        LIMIT ${HOME_PAGE_LIMIT}
+      `;
+
+    // Clear existing home page rankings for this period
+    db.prepare('DELETE FROM home_page_rankings WHERE period = ?').run(period);
+
+    // Insert new rankings
+    const insertHomePageRanking = db.prepare(`
+      INSERT INTO home_page_rankings (
+        tid,
+        period,
+        rank,
+        downloads,
+        last_updated
+      ) VALUES (?, ?, ?, ?, datetime('now'))
+    `);
+
+    const results = period === 'all'
+      ? db.prepare(query).all()
+      : db.prepare(query).all(`-${period === '72h' ? '3' : period === '7d' ? '7' : '30'} days`);
+
+    for (const row of results) {
+      insertHomePageRanking.run(
+        row.tid,
+        period,
+        row.rank,
+        row.downloads
+      );
+    }
+  });
+
+  // Execute transaction
+  transaction();
+
+  const duration = ((performance.now() - startTime) / 1000).toFixed(2);
+  console.log(`\nHome page rankings calculated in ${duration}s`);
+}
+
 async function indexGames() {
   console.log('🚀 Starting indexing process...');
   const startTime = performance.now();
@@ -473,9 +558,16 @@ async function indexGames() {
       await processBatch(db, jsonFiles, gameInfo, i);
     }
 
-    // Calculate rankings for all periods
+    // Calculate rankings for each content type
     for (const period of PERIODS) {
-      await calculatePeriodRankings(db, period);
+      await calculatePeriodRankings(db, period, 'base');
+      await calculatePeriodRankings(db, period, 'update');
+      await calculatePeriodRankings(db, period, 'dlc');
+    }
+
+    // Calculate home page rankings for each period
+    for (const period of PERIODS) {
+      await calculateHomePageRankings(db, period);
     }
 
     await calculatePeriodStats(db);
