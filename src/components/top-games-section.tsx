@@ -54,6 +54,16 @@ export async function TopGamesSection({
   try {
     const games = await getTopGames(period);
     const { title, icon: Icon, gradient } = periodConfig[period];
+    
+    console.log('[TopGamesSection] Period:', period);
+    console.log('[TopGamesSection] Total games:', games.length);
+    console.log('[TopGamesSection] First 5 games:', games.slice(0, 5).map(g => ({
+      tid: g.tid,
+      name: g.info?.name,
+      downloads: g.stats.total_downloads,
+      periodDownloads: g.stats.period_downloads,
+      rankChange: g.stats.rank_change
+    })));
 
     if (!games || games.length === 0) {
       return (

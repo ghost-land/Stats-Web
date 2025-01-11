@@ -20,7 +20,8 @@ interface DbGame {
 const PERIODS = ['72h', '7d', '30d'] as const;
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 3600; // Revalidate every hour
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 function getPeriodCondition(period: typeof PERIODS[number]): string {
   switch (period) {
@@ -47,40 +48,40 @@ export async function GET(
     const startTime = performance.now();
 
     // Get single game with its stats
-    const stmt = db.prepare(`
+    const query = `
       SELECT 
         g.*,
-        json_group_object(
-          date,
-          CAST(d.count AS TEXT)
-        ) as per_date,
+        json_group_object(date, CAST(d.count AS TEXT)) as per_date,
         (
-          SELECT json_group_object(period, total)
+          SELECT json_group_object(period, CAST(total AS TEXT))
           FROM (
             SELECT 
               '72h' as period,
-              SUM(CASE WHEN date >= date('now', '-3 days') THEN count ELSE 0 END) as total
-            FROM downloads 
-            WHERE tid = g.tid
+              SUM(count) as total
+            FROM downloads
+            WHERE tid = g.tid AND date >= date('now', '-3 days')
             UNION ALL
             SELECT 
               '7d',
-              SUM(CASE WHEN date >= date('now', '-7 days') THEN count ELSE 0 END)
-            FROM downloads 
-            WHERE tid = g.tid
+              SUM(count)
+            FROM downloads
+            WHERE tid = g.tid AND date >= date('now', '-7 days')
             UNION ALL
             SELECT 
               '30d',
-              SUM(CASE WHEN date >= date('now', '-30 days') THEN count ELSE 0 END)
-            FROM downloads 
-            WHERE tid = g.tid
+              SUM(count)
+            FROM downloads
+            WHERE tid = g.tid AND date >= date('now', '-30 days')
           )
         ) as period_downloads
       FROM games g
       LEFT JOIN downloads d ON g.tid = d.tid
       WHERE g.tid = ?
       GROUP BY g.tid
-    `) as Statement<[string], DbGame>;
+    `;
+
+    console.log('[API] Executing query:', query.replace(/\s+/g, ' '));
+    const stmt = db.prepare(query) as Statement<[string], DbGame>;
 
     const game = stmt.get(params.tid);
 
@@ -91,12 +92,16 @@ export async function GET(
     // Parse period downloads
     const periodDownloads = game.period_downloads ? JSON.parse(game.period_downloads) : {};
     
+    console.log('[API] Period downloads:', periodDownloads);
+    
     // Ensure period downloads are properly formatted
     const formattedPeriodDownloads = {
-      last_72h: Number(periodDownloads['72h'] || 0),
-      last_7d: Number(periodDownloads['7d'] || 0),
-      last_30d: Number(periodDownloads['30d'] || 0)
+      last_72h: Number(periodDownloads['72h'] || '0'),
+      last_7d: Number(periodDownloads['7d'] || '0'),
+      last_30d: Number(periodDownloads['30d'] || '0')
     };
+    
+    console.log('[API] Formatted period downloads:', formattedPeriodDownloads);
     
     // Convert database row to Game object
     const formattedGame = {
@@ -118,6 +123,12 @@ export async function GET(
         releaseDate: game.release_date || undefined
       }
     };
+
+    console.log('[API] Formatted game:', {
+      tid: formattedGame.tid,
+      downloads: formattedGame.stats.period_downloads,
+      total: formattedGame.stats.total_downloads
+    });
 
     return NextResponse.json(formattedGame);
   } catch (error) {

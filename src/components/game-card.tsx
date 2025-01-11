@@ -46,6 +46,15 @@ export function GameCard({ game, rank, period = 'all', rankChange }: GameCardPro
   const [iconError, setIconError] = useState(false);
   const [showBaseGame, setShowBaseGame] = useState(false);
 
+  console.log('[GameCard] Rendering game:', game.tid, {
+    name: game.info?.name,
+    rank,
+    period,
+    rankChange,
+    periodDownloads: game.stats.period_downloads,
+    totalDownloads: game.stats.total_downloads
+  });
+
   // Get downloads for the specific period
   useEffect(() => {
     setMounted(true);
@@ -64,16 +73,20 @@ export function GameCard({ game, rank, period = 'all', rankChange }: GameCardPro
   if (!mounted || !game) return null;
 
   const getPeriodDownloads = () => {
+    let downloads;
     if (period === 'all') {
-      return game.stats.total_downloads;
+      downloads = game.stats.total_downloads;
     } else if (game.stats.period_downloads) {
-      return game.stats.period_downloads[`last_${period}`] || 0;
+      downloads = game.stats.period_downloads[`last_${period}`] || 0;
+    } else {
+      // Fallback to calculating from per_date
+      if (!game.stats?.per_date) return 0;
+      const dates = Object.entries(game.stats.per_date).sort((a, b) => a[0].localeCompare(b[0]));
+      const days = period === '72h' ? 3 : period === '7d' ? 7 : period === '30d' ? 30 : dates.length;
+      downloads = dates.slice(-days).reduce((sum, [, count]) => sum + count, 0);
     }
-    // Fallback to calculating from per_date if period_downloads not available
-    if (!game.stats?.per_date) return 0;
-    const dates = Object.entries(game.stats.per_date).sort((a, b) => a[0].localeCompare(b[0]));
-    const days = period === '72h' ? 3 : period === '7d' ? 7 : period === '30d' ? 30 : dates.length;
-    return dates.slice(-days).reduce((sum, [, count]) => sum + count, 0);
+    console.log('[GameCard] Period downloads for', game.tid, period, ':', downloads);
+    return downloads;
   };
 
   const periodDownloads = getPeriodDownloads();

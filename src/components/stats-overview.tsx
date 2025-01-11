@@ -45,6 +45,14 @@ function StatCard({
 export async function StatsOverview() {
   const stats = await getGlobalStats();
 
+  console.log('[StatsOverview] Global stats:', {
+    last72h: stats?.last_72h,
+    last7d: stats?.last_7d,
+    last30d: stats?.last_30d,
+    allTime: stats?.all_time,
+    lastUpdated: stats?.last_updated
+  });
+
   if (!stats || !stats.last_updated) {
     return <EmptyState />;
   }
@@ -53,7 +61,7 @@ export async function StatsOverview() {
     {
       title: 'Last 72 Hours',
       value: stats.last_72h,
-      subtitle: stats.last_7d > 0 ? `${((stats.last_72h / stats.last_7d) * 100).toFixed(1)}% vs last week` : 'No data available',
+      subtitle: `${stats.evolution_72h > 0 ? '↑' : stats.evolution_72h < 0 ? '↓' : '→'} ${Math.abs(stats.evolution_72h)}% vs previous 72h`,
       icon: Clock,
       gradient: {
         border: 'from-indigo-500/20 to-indigo-600/20',
@@ -63,7 +71,7 @@ export async function StatsOverview() {
     {
       title: 'Last 7 Days',
       value: stats.last_7d,
-      subtitle: stats.last_30d > 0 ? `${((stats.last_7d / stats.last_30d) * 100).toFixed(1)}% vs last month` : 'No data available',
+      subtitle: `${stats.evolution_7d > 0 ? '↑' : stats.evolution_7d < 0 ? '↓' : '→'} ${Math.abs(stats.evolution_7d)}% vs previous 7 days`,
       icon: TrendingUp,
       gradient: {
         border: 'from-violet-500/20 to-violet-600/20',
@@ -73,7 +81,7 @@ export async function StatsOverview() {
     {
       title: 'Last 30 Days',
       value: stats.last_30d,
-      subtitle: `Average: ${Math.round(stats.last_30d / 30).toLocaleString()} per day`,
+      subtitle: `${stats.evolution_30d > 0 ? '↑' : stats.evolution_30d < 0 ? '↓' : '→'} ${Math.abs(stats.evolution_30d)}% vs previous 30 days`,
       icon: Download,
       gradient: {
         border: 'from-purple-500/20 to-purple-600/20',
@@ -83,7 +91,7 @@ export async function StatsOverview() {
     {
       title: 'All Time',
       value: stats.all_time,
-      subtitle: 'Total downloads tracked',
+      subtitle: '📈 Total downloads since tracking began',
       icon: History,
       gradient: {
         border: 'from-fuchsia-500/20 to-fuchsia-600/20',
