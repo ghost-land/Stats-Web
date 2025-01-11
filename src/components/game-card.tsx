@@ -60,7 +60,7 @@ export function GameCard({ game, rank, period = 'all', rankChange }: GameCardPro
     setMounted(true);
   }, []);
 
-  // Pour les mises à jour et DLC, charger les informations du jeu de base
+  // For updates and DLC, load base game information
   useEffect(() => {
     if (!game.is_base && game.base_tid) {
       fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/games/${game.base_tid}`)
@@ -99,7 +99,7 @@ export function GameCard({ game, rank, period = 'all', rankChange }: GameCardPro
   const gameType = getGameType(game.tid);
   const typeConfig = gameTypeConfig[gameType];
 
-  // Ajouter une classe spéciale pour les mises à jour et DLC
+  // Add special class for updates and DLC
   const cardClasses = cn(
     "group relative overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl will-change-transform h-full bg-gradient-to-br from-white to-white/95 dark:from-slate-900 dark:to-slate-900/95",
     {

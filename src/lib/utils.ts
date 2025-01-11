@@ -19,7 +19,7 @@ export function formatFileSize(bytes: number): string {
   const k = 1024;
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   
-  // Pour les grands nombres, utiliser plus de précision
+  // Use more precision for large numbers
   const precision = i >= 4 ? 3 : 2;
   return `${(bytes / Math.pow(k, i)).toFixed(precision)} ${units[i]}`;
 }
