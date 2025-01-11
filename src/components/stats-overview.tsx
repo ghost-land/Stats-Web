@@ -106,13 +106,12 @@ export async function StatsOverview() {
         <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/[0.03] to-indigo-600/[0.03]" />
         
         <div className="relative p-8">
-          <div className="flex items-center justify-between mb-8">
+          <div className="mb-8">
             <h2 className="text-3xl font-bold bg-gradient-to-br from-indigo-600 to-indigo-500 bg-clip-text text-transparent">
               Global Statistics
             </h2>
-            <div className="flex flex-col items-end text-sm text-muted-foreground">
-              <div>Last updated: {stats.last_updated}</div>
-              <div>Version {pkg.version}</div>
+            <div className="mt-2 text-sm text-muted-foreground">
+              Last updated: {stats.last_updated}
             </div>
           </div>
 

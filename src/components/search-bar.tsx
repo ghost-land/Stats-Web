@@ -16,7 +16,7 @@ export function SearchBar() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="w-full max-w-3xl mx-auto mb-8">
+    <form onSubmit={handleSubmit} className="w-full max-w-3xl mx-auto mb-8 hidden md:block">
       <div className="relative group">
         <input
           type="search"
