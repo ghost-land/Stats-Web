@@ -48,3 +48,23 @@
     --ring: 224.3 76.3% 48%;
   }
 }
+
+@keyframes loading-bar {
+  0% {
+    width: 0%;
+    left: 0;
+  }
+  50% {
+    width: 100%;
+    left: 0;
+  }
+  100% {
+    width: 0%;
+    left: 100%;
+  }
+}
+
+.animate-loading-bar {
+  animation: loading-bar 2s ease-in-out infinite;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+}

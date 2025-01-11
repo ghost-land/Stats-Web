@@ -72,6 +72,16 @@ export function Navigation() {
             >
               All Time
             </Link>
+            <Link 
+              href="/analytics" 
+              className={`text-sm font-medium transition-colors ${
+                isActive('/analytics')
+                  ? 'text-indigo-500'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Analytics
+            </Link>
           </div>
         </div>
 
