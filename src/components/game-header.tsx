@@ -16,6 +16,12 @@ export function GameHeader({ game }: { game: Game }) {
   const [showTotalDataInfo, setShowTotalDataInfo] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const [hasHistory, setHasHistory] = useState(false);
+
+  useEffect(() => {
+    // Check if we have history entries
+    setHasHistory(window.history.length > 2);
+  }, []);
 
   useEffect(() => {
     setMounted(true);
@@ -94,11 +100,11 @@ export function GameHeader({ game }: { game: Game }) {
       <div className="p-6">
         <div className="flex items-center justify-between mb-6">
           <button
-            onClick={() => router.back()}
+            onClick={() => hasHistory ? router.back() : router.push('/')}
             className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors hover:bg-slate-100 dark:hover:bg-slate-800 px-3 py-1.5 rounded-full"
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
-            Back
+            {hasHistory ? 'Back' : 'Home'}
           </button>
           <span className={`inline-flex px-3 py-1.5 rounded-lg text-sm font-medium ${typeConfig.colors.light} ${typeConfig.colors.dark}`}>
             {typeConfig.label}
