@@ -166,15 +166,13 @@ export function GameHeader({ game }: { game: Game }) {
               )}
 
               {totalDataSize && (
-                <div className="group/tooltip relative bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-3 md:cursor-help">
+                <button 
+                  onClick={() => setShowTotalDataInfo(true)}
+                  className="group/tooltip relative bg-slate-100/50 dark:bg-slate-800/50 rounded-lg p-3 w-full text-left md:cursor-help hover:bg-slate-200/50 dark:hover:bg-slate-700/50 transition-colors"
+                >
                   <div className="text-sm text-slate-600 dark:text-slate-400 mb-2 flex items-center gap-1">
                     Total Data
-                    <button 
-                      onClick={() => setShowTotalDataInfo(true)}
-                      className="md:hidden p-1.5 -m-1 hover:bg-slate-200/50 dark:hover:bg-slate-700/50 rounded-full transition-colors active:scale-95"
-                    >
-                      <Info className="w-3.5 h-3.5" />
-                    </button>
+                    <Info className="w-3.5 h-3.5 md:hidden" />
                     <div className="hidden md:block absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-4 py-2.5 bg-slate-800 dark:bg-slate-700 text-white text-xs rounded-lg shadow-lg opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none max-w-[200px] text-center z-50">
                       <p className="font-medium mb-1">Total Data Downloaded</p>
                       <p className="text-slate-300">Combined size of all downloads for this game ({totalDownloads.toLocaleString()} × {size})</p>
@@ -183,7 +181,7 @@ export function GameHeader({ game }: { game: Game }) {
                   <div className="text-lg font-semibold group-hover/tooltip:text-indigo-500 transition-colors">
                     {totalDataSize}
                   </div>
-                </div>
+                </button>
               )}
 
               {/* Mobile Info Dialog */}
