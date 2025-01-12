@@ -173,6 +173,56 @@ async function processBatch(db, files, gameInfo, startIdx) {
 async function calculateAnalytics(db) {
   console.log('\n📈 Calculating analytics...');
   const startTime = performance.now();
+  
+  // Calculate global stats first
+  const globalStats = db.prepare(`
+    WITH period_stats AS (
+      SELECT
+        SUM(CASE WHEN date >= date('now', '-3 days') THEN count ELSE 0 END) as last_72h,
+        SUM(CASE WHEN date >= date('now', '-7 days') THEN count ELSE 0 END) as last_7d,
+        SUM(CASE WHEN date >= date('now', '-30 days') THEN count ELSE 0 END) as last_30d,
+        SUM(count) as all_time,
+        SUM(CASE WHEN date >= date('now', '-6 days') AND date < date('now', '-3 days') THEN count ELSE 0 END) as prev_72h,
+        SUM(CASE WHEN date >= date('now', '-14 days') AND date < date('now', '-7 days') THEN count ELSE 0 END) as prev_7d,
+        SUM(CASE WHEN date >= date('now', '-60 days') AND date < date('now', '-30 days') THEN count ELSE 0 END) as prev_30d
+      FROM downloads
+    )
+    SELECT 
+      last_72h,
+      last_7d,
+      last_30d,
+      all_time,
+      CASE 
+        WHEN prev_72h > 0 THEN ROUND(((last_72h - prev_72h) * 100.0 / prev_72h), 1)
+        ELSE 0 
+      END as evolution_72h,
+      CASE 
+        WHEN prev_7d > 0 THEN ROUND(((last_7d - prev_7d) * 100.0 / prev_7d), 1)
+        ELSE 0 
+      END as evolution_7d,
+      CASE 
+        WHEN prev_30d > 0 THEN ROUND(((last_30d - prev_30d) * 100.0 / prev_30d), 1)
+        ELSE 0 
+      END as evolution_30d
+    FROM period_stats
+  `).get();
+
+  // Update global stats
+  db.prepare(`
+    UPDATE global_stats
+    SET
+      last_72h = ?,
+      last_7d = ?,
+      last_30d = ?,
+      all_time = ?,
+      last_updated = datetime('now')
+    WHERE id = 1
+  `).run(
+    globalStats.last_72h || 0,
+    globalStats.last_7d || 0,
+    globalStats.last_30d || 0,
+    globalStats.all_time || 0
+  );
 
   const transaction = db.transaction(() => {
     // Calculate daily analytics
@@ -252,7 +302,6 @@ async function calculateAnalytics(db) {
     // Calculate period stats for each content type
     db.prepare(`DELETE FROM analytics_period_stats`).run();
     
-    // For each period and content type
     for (const period of PERIODS) {
       for (const contentType of [...CONTENT_TYPES, 'all']) {
         const typeCondition = contentType === 'all' ? '1=1' :
@@ -260,10 +309,40 @@ async function calculateAnalytics(db) {
           contentType === 'update' ? 'g.is_update = 1' :
           'g.is_dlc = 1';
 
-        const periodCondition = period === 'all' ? 
-          // Pour 'all', on prend toutes les données depuis le début
-          'date >= (SELECT MIN(date) FROM downloads)' :
+        const periodCondition = period === 'all' ? '1=1' :
           `date >= date('now', '-${ANALYTICS_PERIODS[period].days} days')`;
+
+        // Calculate previous period for growth rate
+        const prevPeriodCondition = period === 'all' ? '1=1' : 
+          `date >= date('now', '-${ANALYTICS_PERIODS[period].prevDays} days') 
+           AND date < date('now', '-${ANALYTICS_PERIODS[period].days} days')`;
+
+        // Calculate current and previous period totals
+        const periodTotals = db.prepare(`
+          WITH current_period AS (
+            SELECT COALESCE(SUM(d.count), 0) as current_total
+            FROM downloads d
+            JOIN games g ON d.tid = g.tid
+            WHERE ${periodCondition}
+            AND ${typeCondition}
+          ),
+          previous_period AS (
+            SELECT COALESCE(SUM(d.count), 0) as previous_total
+            FROM downloads d
+            JOIN games g ON d.tid = g.tid
+            WHERE ${prevPeriodCondition}
+            AND ${typeCondition}
+          )
+          SELECT 
+            current_period.current_total,
+            previous_period.previous_total,
+            CASE 
+              WHEN previous_period.previous_total > 0 
+              THEN ROUND(((current_period.current_total - previous_period.previous_total) * 100.0 / previous_period.previous_total), 1)
+              ELSE 0 
+            END as growth_rate
+          FROM current_period, previous_period
+        `).get();
 
         db.prepare(`
           INSERT INTO analytics_period_stats (
@@ -272,6 +351,7 @@ async function calculateAnalytics(db) {
             total_downloads,
             data_transferred,
             unique_items,
+            growth_rate,
             last_updated
           )
           SELECT
@@ -280,12 +360,13 @@ async function calculateAnalytics(db) {
             COALESCE(SUM(d.count), 0) as total_downloads,
             COALESCE(SUM(CAST(d.count AS INTEGER) * CAST(COALESCE(g.size, 0) AS INTEGER)), 0) as data_transferred,
             COUNT(DISTINCT d.tid) as unique_items,
+            ? as growth_rate,
             datetime('now') as last_updated
           FROM downloads d
           JOIN games g ON d.tid = g.tid
           WHERE ${periodCondition}
-          AND ${typeCondition}
-        `).run(period, contentType);
+          AND ${typeCondition} 
+        `).run(period, contentType, periodTotals.growth_rate);
       }
     }
   });
@@ -677,6 +758,7 @@ async function initializeDatabase() {
       total_downloads INTEGER NOT NULL DEFAULT 0,
       data_transferred INTEGER NOT NULL DEFAULT 0,
       unique_items INTEGER NOT NULL DEFAULT 0,
+      growth_rate REAL DEFAULT 0,
       last_updated TEXT NOT NULL,
       PRIMARY KEY (period, content_type)
     )`,
