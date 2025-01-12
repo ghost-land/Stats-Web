@@ -4,204 +4,231 @@ import { useState } from 'react';
 import { Card } from '@/components/ui/card'; 
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
-const endpoints = [
-  {
-    method: 'GET',
-    path: '/api/analytics',
-    description: 'Get detailed analytics data with various filters including daily stats, monthly trends, and content type distribution',
-    parameters: {
-      period: 'Optional. Filter by period (72h, 7d, 30d, all)',
-      startDate: 'Optional. Start date for custom range (YYYY-MM-DD)',
-      endDate: 'Optional. End date for custom range (YYYY-MM-DD)',
-      year: 'Optional. Filter by specific year',
-      month: 'Optional. Filter by specific month (1-12)'
-    },
-    example: '/api/analytics?period=30d',
-    response: {
-      dailyDownloads: [/* daily download counts */],
-      monthlyDownloads: [/* monthly download counts */],
-      periodStats: [
-        {
-          period: '30d',
-          content_type: 'base',
-          total_downloads: 500000,
-          data_transferred: 750000000000,
-          unique_items: 1000,
-          growth_rate: 25
+interface Endpoint {
+  method: string;
+  path: string;
+  description: string;
+  parameters?: {
+    [key: string]: string | undefined;
+  };
+  example: string;
+  response: Record<string, any>;
+}
+
+interface Category {
+  title: string;
+  description: string;
+  endpoints: Endpoint[];
+}
+
+const endpointCategories = {
+  analytics: {
+    title: 'Analytics Endpoints',
+    description: 'Endpoints for retrieving analytics and statistics',
+    endpoints: [
+      {
+        method: 'GET',
+        path: '/api/analytics',
+        description: 'Get detailed analytics data with various filters including daily stats, monthly trends, and content type distribution',
+        parameters: {
+          period: 'Optional. Filter by period (72h, 7d, 30d, all)',
+          startDate: 'Optional. Start date for custom range (YYYY-MM-DD)',
+          endDate: 'Optional. End date for custom range (YYYY-MM-DD)',
+          year: 'Optional. Filter by specific year',
+          month: 'Optional. Filter by specific month (1-12)'
+        },
+        example: '/api/analytics?period=30d',
+        response: {
+          dailyDownloads: [/* daily download counts */],
+          monthlyDownloads: [/* monthly download counts */],
+          periodStats: [
+            {
+              period: '30d',
+              content_type: 'base',
+              total_downloads: 500000,
+              data_transferred: 750000000000,
+              unique_items: 1000,
+              growth_rate: 25
+            }
+          ],
+          gameTypeStats: {
+            base_downloads: 500000,
+            update_downloads: 300000,
+            dlc_downloads: 200000,
+            base_data_size: '750 GB',
+            update_data_size: '500 GB',
+            dlc_data_size: '250 GB',
+            unique_base_games: 1000,
+            unique_updates: 800,
+            unique_dlc: 500
+          },
+          dataTransferTrends: [
+            {
+              date: '2024-03-20',
+              data_transferred: 1500000000
+            }
+          ],
+          availableYears: [2024]
         }
-      ],
-      gameTypeStats: {
-        base_downloads: 500000,
-        update_downloads: 300000,
-        dlc_downloads: 200000,
-        base_data_size: '750 GB',
-        update_data_size: '500 GB',
-        dlc_data_size: '250 GB',
-        unique_base_games: 1000,
-        unique_updates: 800,
-        unique_dlc: 500
       },
-      dataTransferTrends: [
-        {
-          date: '2024-03-20',
-          data_transferred: 1500000000
+      {
+        method: 'GET',
+        path: '/api/stats',
+        description: 'Get global download statistics',
+        example: '/api/stats',
+        response: {
+          last_72h: 1000,
+          last_7d: 5000,
+          last_30d: 20000,
+          all_time: 100000,
+          evolution_72h: 25,
+          evolution_7d: 15,
+          evolution_30d: 10,
+          last_updated: '2024-03-20T12:00:00Z'
         }
-      ],
-      availableYears: [2024]
-    }
+      }]
   },
-  {
-    method: 'GET',
-    path: '/api/games',
-    description: 'Get all games with their statistics',
-    example: '/api/games',
-    response: {
-      tid: '0100000000000000',
-      is_base: true,
-      is_update: false,
-      is_dlc: false,
-      base_tid: null,
-      stats: {
-        per_date: { '2024-03-20': 100 },
-        total_downloads: 1000
-      },
-      info: {
-        name: 'Game Name',
-        version: '1.0.0',
-        size: 1000000,
-        releaseDate: '2024-03-20'
-      }
-    }
-  },
-  {
-    method: 'GET',
-    path: '/api/games/[tid]',
-    description: 'Get details for a specific game',
-    example: '/api/games/0100000000000000',
-    response: {
-      tid: '0100000000000000',
-      is_base: true,
-      stats: {
-        per_date: { '2024-03-20': 100 },
-        total_downloads: 1000,
-        period_downloads: {
-          last_72h: 100,
-          last_7d: 500,
-          last_30d: 1000
-        }
-      }
-    }
-  },
-  {
-    method: 'GET',
-    path: '/api/rankings',
-    description: 'Get rankings for multiple games',
-    example: '/api/rankings',
-    parameters: {
-      tids: 'Required. Array of game TIDs',
-      period: 'Required. Period (72h, 7d, 30d, all)'
-    },
-    response: {
-      '0100000000000000': {
-        current: 1,
-        previous: 2,
-        change: 1
-      }
-    }
-  },
-  {
-    method: 'GET',
-    path: '/api/rankings/[tid]',
-    description: 'Get rankings for a specific game across all periods',
-    example: '/api/rankings/0100000000000000',
-    response: {
-      '72h': {
-        current: 1,
-        previous: 2,
-        change: 1
-      },
-      '7d': {
-        current: 3,
-        previous: 5,
-        change: 2
-      },
-      '30d': {
-        current: 10,
-        previous: 8,
-        change: -2
-      },
-      'all': {
-        current: 15,
-        previous: 15,
-        change: 0
-      }
-    }
-  },
-  {
-    method: 'GET',
-    path: '/api/search',
-    description: 'Search games by name or TID',
-    example: '/api/search?q=mario',
-    parameters: {
-      q: 'Required. Search query',
-      type: 'Optional. Filter by content type (base, update, dlc, all)',
-      page: 'Optional. Page number (default: 1)',
-      limit: 'Optional. Results per page (default: 24)'
-    },
-    response: {
-      games: [
-        {
+  games: {
+    title: 'Games Endpoints',
+    description: 'Endpoints for retrieving game information',
+    endpoints: [
+      {
+        method: 'GET',
+        path: '/api/games/[tid]',
+        description: 'Get details for a specific game',
+        example: '/api/games/0100000000000000',
+        response: {
           tid: '0100000000000000',
-          name: 'Super Mario',
+          is_base: true,
           stats: {
-            total_downloads: 1000
+            per_date: { '2024-03-20': 100 },
+            total_downloads: 1000,
+            period_downloads: {
+              last_72h: 100,
+              last_7d: 500,
+              last_30d: 1000
+            }
           }
         }
-      ],
-      total: 100
-    }
-  },
-  {
-    method: 'GET',
-    path: '/api/stats',
-    description: 'Get global download statistics',
-    example: '/api/stats',
-    response: {
-      last_72h: 1000,
-      last_7d: 5000,
-      last_30d: 20000,
-      all_time: 100000,
-      evolution_72h: 25,
-      evolution_7d: 15,
-      evolution_30d: 10,
-      last_updated: '2024-03-20T12:00:00Z'
-    }
-  },
-  {
-    method: 'GET',
-    path: '/api/top/[period]',
-    description: 'Get top games for a specific period',
-    example: '/api/top/72h',
-    parameters: {
-      period: 'Required. Period (72h, 7d, 30d, all)',
-      type: 'Optional. Filter by content type (base, update, dlc, all)',
-      page: 'Optional. Page number (default: 1)',
-      limit: 'Optional. Results per page (default: 24)'
-    },
-    response: [
+      },
       {
-        tid: '0100000000000000',
-        stats: {
-          per_date: { '2024-03-20': 100 },
-          total_downloads: 1000,
-          rank_change: 1
+        method: 'GET',
+        path: '/api/search',
+        description: 'Search games by name or TID',
+        example: '/api/search?q=mario',
+        parameters: {
+          q: 'Required. Search query',
+          type: 'Optional. Filter by content type (base, update, dlc, all)',
+          page: 'Optional. Page number (default: 1)',
+          limit: 'Optional. Results per page (default: 24)'
+        },
+        response: {
+          games: [
+            {
+              tid: '0100000000000000',
+              name: 'Super Mario',
+              stats: {
+                total_downloads: 1000
+              }
+            }
+          ],
+          total: 100
         }
+      }]
+  },
+  rankings: {
+    title: 'Rankings Endpoints',
+    description: 'Endpoints for retrieving game rankings and leaderboards',
+    endpoints: [
+      {
+        method: 'GET',
+        path: '/api/rankings/[tid]',
+        description: 'Get rankings for a specific game across all periods',
+        example: '/api/rankings/0100000000000000',
+        response: {
+          '72h': {
+            current: 1,
+            previous: 2,
+            change: 1
+          },
+          '7d': {
+            current: 3,
+            previous: 5,
+            change: 2
+          },
+          '30d': {
+            current: 10,
+            previous: 8,
+            change: -2
+          },
+          'all': {
+            current: 15,
+            previous: 15,
+            change: 0
+          }
+        }
+      },
+      {
+        method: 'GET',
+        path: '/api/rankings',
+        description: 'Get rankings for multiple games',
+        example: '/api/rankings',
+        parameters: {
+          tids: 'Required. Array of game TIDs',
+          period: 'Required. Period (72h, 7d, 30d, all)',
+          type: 'Optional. Filter by content type (base, update, dlc, all)',
+          page: 'Optional. Page number (default: 1)',
+          limit: 'Optional. Results per page (default: 24)'
+        },
+        response: {
+          '0100000000000000': {
+            current: 1,
+            previous: 2,
+            change: 1
+          }
+        }
+      },
+      {
+        method: 'GET',
+        path: '/api/top/[period]',
+        description: 'Get top games for a specific period',
+        example: '/api/top/72h',
+        parameters: {
+          period: 'Required. Period (72h, 7d, 30d, all)',
+          type: 'Optional. Filter by content type (base, update, dlc, all)',
+          page: 'Optional. Page number (default: 1)',
+          limit: 'Optional. Results per page (default: 24)'
+        },
+        response: [
+          {
+            tid: '0100000000000000',
+            stats: {
+              per_date: { '2024-03-20': 100 },
+              total_downloads: 1000,
+              rank_change: 1
+            }
+          }
+        ]
+      }]
+  },
+  system: {
+    title: 'System Endpoints',
+    description: 'Endpoints for retrieving system information',
+    endpoints: [{
+      method: 'GET',
+      path: '/api/uptime',
+      description: 'Get server uptime information',
+      example: '/api/uptime',
+      response: {
+        status: 'ok',
+        uptime: 123.45,
+        uptime_formatted: '2m 3s'
       }
-    ]
+    }]
   }
-];
+};
 
-function EndpointSection({ endpoint, index }: { endpoint: typeof endpoints[0]; index: number }) {
+function EndpointSection({ endpoint, index }: { endpoint: Endpoint; index: number }) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
@@ -300,11 +327,19 @@ export default function ApiDocsPage() {
               </ul>
 
               <h2 className="mt-8">Endpoints</h2>
-              <div className="space-y-8">
-                {endpoints.map((endpoint, i) => (
-                  <EndpointSection key={i} endpoint={endpoint} index={i} />
-                ))}
-              </div>
+              {Object.entries(endpointCategories).map(([key, category]) => (
+                <div key={key} className="mb-12">
+                  <h3 className="text-xl font-semibold mb-4">{category.title}</h3>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
+                    {category.description}
+                  </p>
+                  <div className="space-y-4">
+                    {category.endpoints.map((endpoint, i) => (
+                      <EndpointSection key={i} endpoint={endpoint} index={i} />
+                    ))}
+                  </div>
+                </div>
+              ))}
 
               <h2 className="mt-8">Error Handling</h2>
               <p>

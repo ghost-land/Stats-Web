@@ -42,21 +42,7 @@ cd Stats-Web
 npm install
 ```
 
-3. Create a `.env.local` file in the root directory:
-```env
-# API Configuration
-NEXT_PUBLIC_API_URL=http://localhost:3000
-
-# Data Sources
-NEXT_PUBLIC_WORKING_JSON_URL=https://raw.githubusercontent.com/ghost-land/NX-Missing/refs/heads/main/data/working.json
-NEXT_PUBLIC_TITLES_DB_URL=https://raw.githubusercontent.com/ghost-land/NX-Missing/refs/heads/main/data/titles_db.txt
-
-# Indexer Configuration (1 hour in milliseconds)
-REINDEX_INTERVAL=3600000
-DATA_DIR=/path/to/your/data/directory
-```
-
-4. Place your data files in the `/data` directory.
+3. Place your data files in the `/data` directory.
 
 ## 🛠️ Development
 
@@ -91,17 +77,27 @@ https://your-domain.com/games.db
 
 ### Available Endpoints
 
+#### Analytics
 - `GET /api/analytics` - Get detailed analytics with various filters
+- `GET /api/stats` - Get global statistics
+
+#### Games
 - `GET /api/games` - Get all games with statistics
 - `GET /api/games/[tid]` - Get details for a specific game
-- `GET /api/rankings/[tid]` - Get rankings for a specific game
 - `GET /api/search` - Search games by name or TID
-- `GET /api/stats` - Get global statistics
+
+#### Rankings
+- `GET /api/rankings/[tid]` - Get rankings for a specific game
 - `GET /api/top/[period]` - Get top games by period
+
+#### System
+- `GET /api/uptime` - Get server uptime information
 
 For detailed API documentation, visit `/api/docs` in your browser.
 
 ## 🔧 Environment Variables
+
+All environment variables are configured in `ecosystem.config.js`:
 
 - `NEXT_PUBLIC_API_URL`: Base URL for the API
 - `NEXT_PUBLIC_WORKING_JSON_URL`: URL for the working.json file
