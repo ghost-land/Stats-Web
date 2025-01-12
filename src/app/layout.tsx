@@ -13,17 +13,24 @@ const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 export async function generateMetadata() {
   return {
     metadataBase: new URL(baseUrl),
+    manifest: '/manifest.json',
+    themeColor: '#4f46e5',
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: 'default',
+      title: 'Game Stats',
+    },
     title: 'Game Stats',
     description: 'Track and analyze game download statistics',
     icons: {
       icon: [
-        { url: '/favicon.png', type: 'image/png' }
+        { url: '/favicon.png', type: 'image/png', sizes: '192x192' }
       ],
       shortcut: [
-        { url: '/favicon.png', type: 'image/png' }
+        { url: '/favicon.png', type: 'image/png', sizes: '192x192' }
       ],
       apple: [
-        { url: '/favicon.png', type: 'image/png' }
+        { url: '/favicon.png', type: 'image/png', sizes: '192x192' }
       ]
     },
     openGraph: {
