@@ -1,10 +1,21 @@
 import path from 'path';
 import fs from 'fs';
 import Database from 'better-sqlite3';
-import { cache } from 'react';
 
 const DB_PATH = path.join(process.cwd(), 'public', 'games.db');
-const DB_CHECK_INTERVAL = 5000; // Check every 5 seconds
+
+// Table for pre-calculated analytics data
+const ANALYTICS_TABLES = [
+  `CREATE TABLE IF NOT EXISTS analytics_cache (
+    period TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    data JSON NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (period, start_date, end_date)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_analytics_cache_dates ON analytics_cache(start_date, end_date)`
+];
 
 // Get database last modified time
 export function getDbLastModified(): number {
@@ -17,9 +28,15 @@ export function getDbLastModified(): number {
   }
 }
 
-// Cache the database connection
-const getDbConnection = cache(async () => {
+// Get database connection
+export async function getDatabase(): Promise<Database.Database | null> {
   try {
+    // Check if database file exists
+    if (!fs.existsSync(DB_PATH)) {
+      console.error('[DB] Database file not found:', DB_PATH);
+      return null;
+    }
+
     const db = new Database(DB_PATH, {
       readonly: true,
       fileMustExist: true,
@@ -28,9 +45,10 @@ const getDbConnection = cache(async () => {
     });
 
     // Enable optimizations
+    // Set pragmas for optimization
     db.pragma('journal_mode = WAL');
     db.pragma('synchronous = NORMAL');
-    db.pragma('cache_size = -32000');
+    db.pragma('cache_size = -32000'); // Use 32MB of cache
     db.pragma('temp_store = MEMORY');
     db.pragma('busy_timeout = 30000');
     db.pragma('mmap_size = 30000000000');
@@ -47,33 +65,13 @@ const getDbConnection = cache(async () => {
     db.pragma('checkpoint_fullfsync = OFF');
     db.pragma('trusted_schema = OFF');
     db.pragma('query_only = ON');
-    db.pragma('wal_autocheckpoint = 1000');
-    db.pragma('wal_checkpoint(PASSIVE)');
+
+    // Run WAL checkpoint
+    db.pragma('wal_checkpoint = PASSIVE');
 
     return db;
   } catch (error) {
     console.error('[DB] Error creating database connection:', error);
-    return null;
-  }
-});
-
-// Get or initialize database connection
-export async function getDatabase(): Promise<Database.Database | null> {
-  try {
-    // Check if database file exists
-    if (!fs.existsSync(DB_PATH)) {
-      console.error('[DB] Database file not found:', DB_PATH);
-      return null;
-    }
-
-    // Get cached database connection
-    const db = await getDbConnection();
-    if (!db) throw new Error('Failed to create database connection');
-
-    // Return database instance
-    return db;
-  } catch (error) {
-    console.error('[DB] Error getting database connection:', error);
     return null;
   }
 }

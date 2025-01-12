@@ -83,7 +83,7 @@ export function PageTransition({ children }: { children: React.ReactNode }) {
       // Show transition for 1 second
       const timer = setTimeout(() => {
         setTransitioning(false);
-      }, 1000);
+      }, 5000);
 
       return () => clearTimeout(timer);
     }

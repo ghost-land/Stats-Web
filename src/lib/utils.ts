@@ -1,6 +1,11 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+interface DateRange {
+  start: string;
+  end: string;
+}
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -64,3 +69,48 @@ export const gameTypeConfig = {
     }
   }
 } as const;
+
+export function getDateRange(
+  period?: string,
+  startDate?: string,
+  endDate?: string,
+  year?: string,
+  month?: string
+): DateRange {
+  if (startDate && endDate) {
+    return { start: startDate, end: endDate };
+  }
+
+  if (year && month) {
+    const date = new Date(parseInt(year), parseInt(month) - 1);
+    const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+    return {
+      start: `${year}-${month.padStart(2, '0')}-01`,
+      end: `${year}-${month.padStart(2, '0')}-${lastDay.getDate()}`
+    };
+  }
+
+  if (year) {
+    return {
+      start: `${year}-01-01`,
+      end: `${year}-12-31`
+    };
+  }
+
+  if (period === 'all') {
+    return {
+      start: '2024-01-01', // Use start of year as default
+      end: new Date().toISOString().split('T')[0]
+    };
+  }
+
+  const end = new Date();
+  const start = new Date();
+  const days = period === '72h' ? 3 : period === '7d' ? 7 : 30;
+  start.setDate(start.getDate() - days);
+
+  return {
+    start: start.toISOString().split('T')[0],
+    end: end.toISOString().split('T')[0]
+  };
+}

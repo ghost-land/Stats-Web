@@ -1,10 +1,4 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import pako from 'pako';
-
-interface YearRow {
-  year: number;
-}
 
 interface AnalyticsData {
   dailyStats: {
@@ -26,18 +20,7 @@ interface AnalyticsData {
     data_transferred: number;
     unique_items: number;
     growth_rate: number;
-  }[];
-  weeklyDistribution: {
-    day: string;
-    average_downloads: number;
-  }[];
-  hourlyDistribution: {
-    hour: number;
-    average_downloads: number;
-  }[];
-  dataTransferTrends: {
-    date: string;
-    data_transferred: number;
+    last_updated: string;
   }[];
   gameTypeStats: {
     base_downloads: number;
@@ -53,48 +36,107 @@ interface AnalyticsData {
     unique_updates: number;
     unique_dlc: number;
   };
-  peakStats: {
-    peak_hour: number;
-    peak_hour_downloads: number;
-    most_active_day: string;
-    most_active_day_downloads: number;
-  };
   availableYears: number[];
-  lastUpdated: number;
+  dataTransferTrends: { date: string; data_transferred: number; }[];
 }
+
+const DEFAULT_ANALYTICS_DATA: AnalyticsData = {
+  dailyStats: [],
+  monthlyStats: [],
+  periodStats: [],
+  gameTypeStats: {
+    base_downloads: 0,
+    update_downloads: 0,
+    dlc_downloads: 0,
+    base_data_transferred: 0,
+    update_data_transferred: 0,
+    dlc_data_transferred: 0,
+    base_data_size: '0 B',
+    update_data_size: '0 B',
+    dlc_data_size: '0 B',
+    unique_base_games: 0,
+    unique_updates: 0,
+    unique_dlc: 0
+  },
+  availableYears: [],
+  dataTransferTrends: []
+};
 
 interface AnalyticsStore {
   data: AnalyticsData | null;
   setData: (data: AnalyticsData | null) => void;
-  lastFetch: number;
+  isLoading: boolean;
+  setLoading: (loading: boolean) => void;
+  error: string | null;
+  setError: (error: string | null) => void;
+  fetchData: (params: {
+    period?: string;
+    startDate?: string;
+    endDate?: string;
+    year?: string;
+    month?: string;
+  }) => Promise<void>;
 }
 
-// Create store with persistence
-export const useAnalyticsStore = create<AnalyticsStore>()(
-  persist(
-    (set) => ({
-      data: null,
-      lastFetch: 0,
-      setData: (data) => set({ data, lastFetch: Date.now() }),
-    }),
-    {
-      name: 'analytics-store',
-      serialize: (state) => {
-        // Compress data before storing
-        const compressed = pako.deflate(JSON.stringify(state), { level: 9 });
-        return btoa(String.fromCharCode.apply(null, compressed as any));
+export const useAnalyticsStore = create<AnalyticsStore>((set, get) => ({
+  data: null,
+  isLoading: false,
+  error: null,
+  setData: (newData) => set((state) => ({
+    data: newData ? {
+      dailyStats: newData.dailyStats || DEFAULT_ANALYTICS_DATA.dailyStats,
+      monthlyStats: newData.monthlyStats || DEFAULT_ANALYTICS_DATA.monthlyStats,
+      periodStats: newData.periodStats || DEFAULT_ANALYTICS_DATA.periodStats,
+      gameTypeStats: {
+        ...DEFAULT_ANALYTICS_DATA.gameTypeStats,
+        ...newData.gameTypeStats
       },
-      deserialize: (str) => {
-        try {
-          // Decompress stored data
-          const compressed = Uint8Array.from(atob(str), c => c.charCodeAt(0));
-          const decompressed = pako.inflate(compressed, { to: 'string' });
-          return JSON.parse(decompressed);
-        } catch (err) {
-          console.error('Error deserializing analytics data:', err);
-          return { data: null, lastFetch: 0 };
-        }
-      },
+      availableYears: newData.availableYears || DEFAULT_ANALYTICS_DATA.availableYears,
+      dataTransferTrends: newData.dataTransferTrends || DEFAULT_ANALYTICS_DATA.dataTransferTrends
+    } : null
+  })),
+  setLoading: (loading) => set({ isLoading: loading }),
+  setError: (error) => set({ error }),
+  fetchData: async (params) => {
+    const store = get();
+    if (store.isLoading) return;
+
+    try {
+      store.setLoading(true);
+      store.setError(null);
+
+      // Check cache
+      const cacheKey = JSON.stringify(params);
+      const cachedData = localStorage.getItem(`analytics_${cacheKey}`);
+      const cacheTimestamp = localStorage.getItem(`analytics_timestamp_${cacheKey}`);
+      const now = Date.now();
+      const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+      if (cachedData && cacheTimestamp && (now - parseInt(cacheTimestamp)) < CACHE_DURATION) {
+        store.setData(JSON.parse(cachedData));
+        return;
+      }
+
+      const searchParams = new URLSearchParams();
+      Object.entries(params).forEach(([key, value]) => {
+        if (value) searchParams.set(key, value);
+      });
+
+      const response = await fetch(`/api/analytics?${searchParams.toString()}`);
+      if (!response.ok) throw new Error('Failed to fetch analytics data');
+
+      const data = await response.json();
+      
+      // Cache the response
+      localStorage.setItem(`analytics_${cacheKey}`, JSON.stringify(data));
+      localStorage.setItem(`analytics_timestamp_${cacheKey}`, now.toString());
+      
+      store.setData(data);
+    } catch (error) {
+      console.error('Error fetching analytics:', error);
+      store.setError(error instanceof Error ? error.message : 'Failed to load analytics data');
+    } finally {
+      store.setLoading(false);
     }
-  )
-);
+  }
+}));

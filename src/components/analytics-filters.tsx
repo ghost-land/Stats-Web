@@ -17,16 +17,19 @@ function AnalyticsFilters() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { setData } = useAnalyticsStore();
+  const [isLoading, setIsLoading] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [availableYears, setAvailableYears] = useState<number[]>([]);
 
   useEffect(() => {
     const fetchYears = async () => {
+      setIsLoading(true);
       const response = await fetch('/api/analytics');
       const data = await response.json();
       if (data.availableYears) {
         setAvailableYears(data.availableYears.map((y: string) => parseInt(y)));
       }
+      setIsLoading(false);
     };
     fetchYears();
   }, []);
@@ -49,7 +52,14 @@ function AnalyticsFilters() {
   return (
     <div className="mb-8 space-y-4">
       <div className="flex flex-col sm:flex-row gap-4">
-        {/* Period Filters */}
+        {isLoading && (
+          <div className="flex items-center justify-center w-full py-4">
+            <div className="animate-spin rounded-full h-6 w-6 border-2 border-indigo-500 border-t-transparent" />
+          </div>
+        )}
+        
+        {!isLoading && (
+        <>
         <div className="grid grid-cols-2 sm:flex gap-2">
           {['72h', '7d', '30d', 'all'].map((period) => (
             <button
@@ -152,6 +162,8 @@ function AnalyticsFilters() {
             </Card>
           )}
         </div>
+        </>
+        )}
       </div>
     </div>
   );
