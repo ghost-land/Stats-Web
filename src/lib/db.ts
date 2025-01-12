@@ -1,107 +1,79 @@
-import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import Database from 'better-sqlite3';
+import { cache } from 'react';
+
+const DB_PATH = path.join(process.cwd(), 'public', 'games.db');
+const DB_CHECK_INTERVAL = 5000; // Check every 5 seconds
 
 // Get database last modified time
 export function getDbLastModified(): number {
   try {
     const stats = fs.statSync(DB_PATH);
-    console.log(`[DB] File size: ${(stats.size / 1024 / 1024).toFixed(2)}MB`);
-    console.log(`[DB] Last modified: ${new Date(stats.mtimeMs).toISOString()}`);
     return stats.mtimeMs;
   } catch (error) {
     console.error('Error getting DB last modified time:', error);
     return 0;
   }
 }
-let db: Database.Database | null = null;
-let lastDbCheck = 0;
-const DB_CHECK_INTERVAL = 60000; // Vérifier toutes les minutes
 
-const DB_PATH = path.join(process.cwd(), 'public', 'games.db');
+// Cache the database connection
+const getDbConnection = cache(async () => {
+  try {
+    const db = new Database(DB_PATH, {
+      readonly: true,
+      fileMustExist: true,
+      timeout: 30000,
+      verbose: process.env.NODE_ENV === 'development' ? console.log : undefined
+    });
 
-export async function getDatabase() {
-  const now = Date.now();
+    // Enable optimizations
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
+    db.pragma('cache_size = -32000');
+    db.pragma('temp_store = MEMORY');
+    db.pragma('busy_timeout = 30000');
+    db.pragma('mmap_size = 30000000000');
+    db.pragma('page_size = 4096');
+    db.pragma('threads = 4');
+    db.pragma('read_uncommitted = 0');
+    db.pragma('foreign_keys = ON');
+    db.pragma('auto_vacuum = INCREMENTAL');
+    db.pragma('secure_delete = OFF');
+    db.pragma('locking_mode = NORMAL');
+    db.pragma('cache_spill = OFF');
+    db.pragma('recursive_triggers = OFF');
+    db.pragma('reverse_unordered_selects = OFF');
+    db.pragma('checkpoint_fullfsync = OFF');
+    db.pragma('trusted_schema = OFF');
+    db.pragma('query_only = ON');
+    db.pragma('wal_autocheckpoint = 1000');
+    db.pragma('wal_checkpoint(PASSIVE)');
 
-  console.log('[DB] Checking database connection...');
-
-  // Vérifier si la base de données a été modifiée
-  if (db && (now - lastDbCheck) > DB_CHECK_INTERVAL) {
-    try {
-      const stats = fs.statSync(DB_PATH);
-      if (stats.mtimeMs > lastDbCheck) {
-        console.log(`[DB] Database file has been modified (${new Date(stats.mtimeMs).toISOString()}), reloading...`);
-        db.close();
-        db = null;
-      }
-    } catch (error) {
-      console.error('[DB] Error checking database file:', error);
-    }
-    lastDbCheck = now;
+    return db;
+  } catch (error) {
+    console.error('[DB] Error creating database connection:', error);
+    return null;
   }
+});
 
-  if (!db) {
-    try {
-      // Check if database file exists
-      if (!fs.existsSync(DB_PATH)) {
-        console.error('[DB] Database file not found:', DB_PATH);
-        return null;
-      }
-
-      db = new Database(DB_PATH, { 
-        readonly: false, 
-        fileMustExist: true,
-        verbose: (sql, time) => {
-          if (process.env.NODE_ENV === 'development' || process.env.DEBUG) {
-            console.log(`[DB Query] (${time}ms) ${sql}`);
-          }
-        },
-        timeout: 5000
-      });
-      
-      // Basic query to test connection
-      try {
-        db.prepare('SELECT 1').get();
-      } catch (error) {
-        console.error('[DB] Connection test failed:', error instanceof Error ? error.message : 'Unknown error');
-        db = null;
-        return null;
-      }
-
-      // Enable WAL mode for better concurrency
-      db.pragma('journal_mode = WAL');
-      db.pragma('foreign_keys = ON');
-      db.pragma('busy_timeout = 10000');
-      db.pragma('cache_size = -8000'); // Use 8MB of cache
-      db.pragma('synchronous = NORMAL');
-      db.pragma('temp_store = MEMORY');
-      
-      const lastUpdate = db.prepare('SELECT last_updated FROM global_stats WHERE id = 1').get() as { last_updated: string } | undefined;
-      console.log(`[DB] Connection established successfully (${new Date().toISOString()})`);
-      console.log(`[DB] Last data update: ${lastUpdate?.last_updated || 'Never'}`);
-      console.log(`[DB] Database size: ${(fs.statSync(DB_PATH).size / 1024 / 1024).toFixed(2)}MB`);
-
-      // Add event listener for process exit to close the connection
-      process.on('exit', () => {
-        if (db) {
-          console.log('[DB] Closing connection on exit');
-          db.close();
-          db = null;
-        }
-      });
-
-      process.on('SIGINT', () => {
-        if (db) {
-          db.close();
-          db = null;
-        }
-        process.exit(0);
-      });
-
-    } catch (error) {
-      console.error('Error initializing database:', error instanceof Error ? error.message : 'Unknown error');
+// Get or initialize database connection
+export async function getDatabase(): Promise<Database.Database | null> {
+  try {
+    // Check if database file exists
+    if (!fs.existsSync(DB_PATH)) {
+      console.error('[DB] Database file not found:', DB_PATH);
       return null;
     }
+
+    // Get cached database connection
+    const db = await getDbConnection();
+    if (!db) throw new Error('Failed to create database connection');
+
+    // Return database instance
+    return db;
+  } catch (error) {
+    console.error('[DB] Error getting database connection:', error);
+    return null;
   }
-  return db;
 }

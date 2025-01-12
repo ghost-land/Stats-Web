@@ -1,18 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Calendar, ChevronDown } from 'lucide-react';
+import { useAnalyticsStore } from '@/lib/analytics-store';
+
+export { AnalyticsFilters };
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
-export function AnalyticsFilters() {
+function AnalyticsFilters() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { setData } = useAnalyticsStore();
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [availableYears, setAvailableYears] = useState<number[]>([]);
 
@@ -27,7 +31,10 @@ export function AnalyticsFilters() {
     fetchYears();
   }, []);
 
-  const updateFilters = (params: Record<string, string>) => {
+  const updateFilters = useCallback((params: Record<string, string>) => {
+    // Clear existing data to force a fresh fetch
+    setData(null);
+
     const newParams = new URLSearchParams(searchParams.toString());
     Object.entries(params).forEach(([key, value]) => {
       if (value) {
@@ -37,19 +44,28 @@ export function AnalyticsFilters() {
       }
     });
     router.push(`/analytics?${newParams.toString()}`);
-  };
+  }, [router, searchParams, setData]);
 
   return (
     <div className="mb-8 space-y-4">
       <div className="flex flex-col sm:flex-row gap-4">
-        {/* Preset Periods */}
+        {/* Period Filters */}
         <div className="grid grid-cols-2 sm:flex gap-2">
           {['72h', '7d', '30d', 'all'].map((period) => (
             <button
               key={period}
-              onClick={() => updateFilters({ period })}
+              onClick={() => {
+                // Clear all other filters when selecting a period
+                updateFilters({ 
+                  period,
+                  startDate: '',
+                  endDate: '',
+                  year: '',
+                  month: '' 
+                });
+              }}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                searchParams.get('period') === period
+                (!searchParams.has('startDate') && !searchParams.has('year') && searchParams.get('period') === period)
                   ? 'bg-indigo-500 text-white'
                   : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
@@ -63,7 +79,15 @@ export function AnalyticsFilters() {
         <div className="grid grid-cols-2 sm:flex gap-2">
           <select
             value={searchParams.get('year') || ''}
-            onChange={(e) => updateFilters({ year: e.target.value })}
+            onChange={(e) => {
+              // Clear period and date range when selecting year
+              updateFilters({ 
+                year: e.target.value,
+                period: '',
+                startDate: '',
+                endDate: ''
+              });
+            }}
             className="px-4 py-2 rounded-lg text-sm font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
           >
             <option value="">Select Year</option>
@@ -74,7 +98,15 @@ export function AnalyticsFilters() {
 
           <select
             value={searchParams.get('month') || ''}
-            onChange={(e) => updateFilters({ month: e.target.value })}
+            onChange={(e) => {
+              // Clear period and date range when selecting month
+              updateFilters({ 
+                month: e.target.value,
+                period: '',
+                startDate: '',
+                endDate: ''
+              });
+            }}
             className="px-4 py-2 rounded-lg text-sm font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
           >
             <option value="">Select Month</option>

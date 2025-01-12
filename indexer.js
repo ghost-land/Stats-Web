@@ -4,12 +4,21 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const fetch = require('node-fetch').default;
 
-const BATCH_SIZE = 1000; // Process files in batches of 1000
+// Constants
+const BATCH_SIZES = {
+  FILES: 1000,    // Process files in batches of 1000
+  GAMES: 1000     // Process games in batches of 1000
+};
+const HOME_PAGE_LIMIT = 12; // Number of games to show on home page
 
-// Periods for the rankings
-const PERIODS = Object.freeze(['72h', '7d', '30d', 'all']);
-const CONTENT_TYPES = Object.freeze(['base', 'update', 'dlc']);
-const HOME_PAGE_LIMIT = 12;
+// Analytics constants
+const PERIODS = ['72h', '7d', '30d', 'all'];
+const CONTENT_TYPES = ['base', 'update', 'dlc'];
+const ANALYTICS_PERIODS = {
+  '72h': { days: 3, prevDays: 6 },
+  '7d': { days: 7, prevDays: 14 },
+  '30d': { days: 30, prevDays: 60 }
+};
 
 // Configuration
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
@@ -17,7 +26,31 @@ const DB_PATH = path.join(process.cwd(), 'public', 'games.db');
 
 function getDatabase() {
   try {
-    return new Database(DB_PATH);
+    const db = new Database(DB_PATH);
+    
+    // Enable optimizations
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
+    db.pragma('cache_size = -32000'); // Use 32MB of cache
+    db.pragma('temp_store = MEMORY');
+    db.pragma('busy_timeout = 30000');
+    db.pragma('mmap_size = 30000000000');
+    db.pragma('page_size = 4096');
+    db.pragma('threads = 4');
+    db.pragma('read_uncommitted = 0');
+    db.pragma('foreign_keys = ON');
+    db.pragma('auto_vacuum = INCREMENTAL');
+    db.pragma('secure_delete = OFF');
+    db.pragma('locking_mode = NORMAL');
+    db.pragma('cache_spill = OFF');
+    db.pragma('recursive_triggers = OFF');
+    db.pragma('reverse_unordered_selects = OFF');
+    db.pragma('checkpoint_fullfsync = OFF');
+    db.pragma('trusted_schema = OFF');
+    db.pragma('wal_autocheckpoint = 1000');
+    db.pragma('wal_checkpoint(PASSIVE)');
+
+    return db;
   } catch (error) {
     console.error('Error opening database:', error);
     throw error;
@@ -75,9 +108,197 @@ async function fetchGameInfo() {
   }
 }
 
-// Calculate rankings for a specific period and content type
+async function processBatch(db, files, gameInfo, startIdx) {
+  try {
+    const endIdx = Math.min(startIdx + BATCH_SIZES.FILES, files.length);
+    const batchFiles = files.slice(startIdx, endIdx);
+
+    // Begin transaction for the batch
+    const transaction = db.transaction(() => {
+      const insertGame = db.prepare(`
+        INSERT OR REPLACE INTO games (
+          tid, name, version, size, release_date, is_base, is_update, is_dlc,
+          base_tid, total_downloads, last_updated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const insertDownload = db.prepare(`
+        INSERT OR REPLACE INTO downloads (tid, date, count)
+        VALUES (?, ?, ?)
+      `);
+
+      for (const file of batchFiles) {
+        if (!file.endsWith('_downloads.json')) continue;
+
+        const filePath = path.join(DATA_DIR, file);
+        const content = fs.readFileSync(filePath, 'utf8');
+        const stats = JSON.parse(content);
+        const tid = file.replace('_downloads.json', '');
+
+        // Insert game
+        insertGame.run([
+          tid,
+          gameInfo[tid]?.name || null,
+          gameInfo[tid]?.version || null,
+          gameInfo[tid]?.size || null,
+          gameInfo[tid]?.releaseDate || null,
+          tid.endsWith('000') ? 1 : 0,
+          tid.endsWith('800') ? 1 : 0,
+          (!tid.endsWith('000') && !tid.endsWith('800')) ? 1 : 0,
+          tid.endsWith('000') ? null : `${tid.slice(0, 12)}000`,
+          stats.total_downloads || 0,
+          new Date().toISOString()
+        ].map(v => v === undefined ? null : v));
+
+        // Insert downloads
+        Object.entries(stats.per_date).forEach(([date, count]) => {
+          insertDownload.run(tid, date, count);
+        });
+      }
+    });
+
+    // Execute transaction
+    transaction();
+
+    const progress = ((endIdx / files.length) * 100).toFixed(1);
+    console.log(`📊 Progress: ${progress}% (${endIdx}/${files.length})`);
+
+    return endIdx;
+  } catch (error) {
+    console.error(`❌ Error processing batch starting at ${startIdx}:`, error);
+    throw error;
+  }
+}
+
+async function calculateAnalytics(db) {
+  console.log('\n📈 Calculating analytics...');
+  const startTime = performance.now();
+
+  const transaction = db.transaction(() => {
+    // Calculate daily analytics
+    db.prepare(`DELETE FROM analytics_daily`).run();
+    db.prepare(`
+      INSERT INTO analytics_daily (
+        date,
+        total_downloads,
+        unique_games,
+        data_transferred,
+        base_downloads,
+        update_downloads,
+        dlc_downloads,
+        base_data,
+        update_data,
+        dlc_data
+      )
+      SELECT
+        d.date,
+        SUM(d.count) as total_downloads,
+        COUNT(DISTINCT d.tid) as unique_games,
+        SUM(CAST(d.count AS INTEGER) * CAST(COALESCE(g.size, 0) AS INTEGER)) as data_transferred,
+        SUM(CASE WHEN g.is_base = 1 THEN d.count ELSE 0 END) as base_downloads,
+        SUM(CASE WHEN g.is_update = 1 THEN d.count ELSE 0 END) as update_downloads,
+        SUM(CASE WHEN g.is_dlc = 1 THEN d.count ELSE 0 END) as dlc_downloads,
+        SUM(CASE WHEN g.is_base = 1 THEN CAST(d.count AS INTEGER) * CAST(COALESCE(g.size, 0) AS INTEGER) ELSE 0 END) as base_data,
+        SUM(CASE WHEN g.is_update = 1 THEN CAST(d.count AS INTEGER) * CAST(COALESCE(g.size, 0) AS INTEGER) ELSE 0 END) as update_data,
+        SUM(CASE WHEN g.is_dlc = 1 THEN CAST(d.count AS INTEGER) * CAST(COALESCE(g.size, 0) AS INTEGER) ELSE 0 END) as dlc_data
+      FROM downloads d
+      JOIN games g ON d.tid = g.tid
+      GROUP BY d.date
+      ORDER BY d.date
+    `).run();
+
+    // Calculate weekly analytics
+    db.prepare(`DELETE FROM analytics_weekly`).run();
+    db.prepare(`
+      WITH raw_weekly AS (
+        SELECT
+          CAST(strftime('%Y', date) AS INTEGER) as year,
+          CAST(strftime('%W', date) AS INTEGER) + 1 as week,
+          SUM(d.count) as total_downloads,
+          SUM(CAST(d.count AS INTEGER) * CAST(COALESCE(g.size, 0) AS INTEGER)) as data_transferred
+        FROM downloads d
+        JOIN games g ON d.tid = g.tid
+        GROUP BY year, week
+      )
+      INSERT INTO analytics_weekly (year, week, total_downloads, data_transferred)
+      SELECT
+        year,
+        CASE 
+          WHEN week > 53 THEN 53  -- Cap at week 53
+          WHEN week < 1 THEN 1    -- Ensure minimum week is 1
+          ELSE week 
+        END as week,
+        total_downloads,
+        data_transferred
+      FROM raw_weekly
+      ORDER BY year, week
+    `).run();
+
+    // Calculate monthly analytics
+    db.prepare(`DELETE FROM analytics_monthly`).run();
+    db.prepare(`
+      INSERT INTO analytics_monthly (year, month, total_downloads, data_transferred)
+      SELECT
+        CAST(strftime('%Y', date) AS INTEGER) as year,
+        CAST(strftime('%m', date) AS INTEGER) as month,
+        SUM(d.count) as total_downloads,
+        SUM(CAST(d.count AS INTEGER) * CAST(COALESCE(g.size, 0) AS INTEGER)) as data_transferred
+      FROM downloads d
+      JOIN games g ON d.tid = g.tid
+      GROUP BY year, month
+      ORDER BY year, month
+    `).run();
+
+    // Calculate period stats for each content type
+    db.prepare(`DELETE FROM analytics_period_stats`).run();
+    
+    // For each period and content type
+    for (const period of PERIODS) {
+      for (const contentType of [...CONTENT_TYPES, 'all']) {
+        const typeCondition = contentType === 'all' ? '1=1' :
+          contentType === 'base' ? 'g.is_base = 1' :
+          contentType === 'update' ? 'g.is_update = 1' :
+          'g.is_dlc = 1';
+
+        const periodCondition = period === 'all' ? 
+          // Pour 'all', on prend toutes les données depuis le début
+          'date >= (SELECT MIN(date) FROM downloads)' :
+          `date >= date('now', '-${ANALYTICS_PERIODS[period].days} days')`;
+
+        db.prepare(`
+          INSERT INTO analytics_period_stats (
+            period,
+            content_type,
+            total_downloads,
+            data_transferred,
+            unique_items,
+            last_updated
+          )
+          SELECT
+            ? as period,
+            ? as content_type,
+            COALESCE(SUM(d.count), 0) as total_downloads,
+            COALESCE(SUM(CAST(d.count AS INTEGER) * CAST(COALESCE(g.size, 0) AS INTEGER)), 0) as data_transferred,
+            COUNT(DISTINCT d.tid) as unique_items,
+            datetime('now') as last_updated
+          FROM downloads d
+          JOIN games g ON d.tid = g.tid
+          WHERE ${periodCondition}
+          AND ${typeCondition}
+        `).run(period, contentType);
+      }
+    }
+  });
+
+  // Execute transaction
+  transaction();
+
+  const duration = ((performance.now() - startTime) / 1000).toFixed(2);
+  console.log(`\n✨ Analytics calculated in ${duration}s`);
+}
+
 async function calculatePeriodRankings(db, period, contentType) {
-  console.log(`\nCalculating rankings for period: ${period}, type: ${contentType || 'all'}`);
+  console.log(`\n🏆 Calculating rankings for period: ${period}, type: ${contentType}`);
   const startTime = performance.now();
 
   const transaction = db.transaction(() => {
@@ -159,19 +380,20 @@ async function calculatePeriodRankings(db, period, contentType) {
 
     // Insert rankings history
     const insertRankingHistory = db.prepare(`
-      INSERT INTO rankings_history (
+      INSERT OR REPLACE INTO rankings_history (
         tid,
         period,
         content_type,
         rank,
         downloads,
         date
-      ) VALUES (?, ?, ?, ?, ?, date('now'))
+      ) VALUES (?, ?, ?, ?, ?, ?)
     `);
 
     // Insert new rankings for each game
     for (const [tid, current] of currentRankingsMap) {
       const previous = previousRankingsMap.get(tid);
+      const today = new Date().toISOString().split('T')[0];
       
       db.prepare(`
         INSERT INTO current_rankings (
@@ -197,12 +419,122 @@ async function calculatePeriodRankings(db, period, contentType) {
       );
 
       // Insert into rankings history
-      insertRankingHistory.run(
+      // Check if we already have a record for today
+      const existingRecord = db.prepare(`
+        SELECT 1 FROM rankings_history 
+        WHERE tid = ? AND period = ? AND content_type = ? AND date = ?
+      `).get(tid, period, contentType, today);
+
+      if (!existingRecord) {
+        insertRankingHistory.run(
+          tid,
+          period,
+          contentType,
+          current.rank,
+          current.downloads,
+          today
+        );
+      }
+    }
+
+    // Log some statistics
+    const stats = db.prepare(`
+      SELECT
+        COUNT(*) as total_rankings,
+        COUNT(CASE WHEN rank_change > 0 THEN 1 END) as moved_up,
+        COUNT(CASE WHEN rank_change < 0 THEN 1 END) as moved_down,
+        COUNT(CASE WHEN rank_change = 0 THEN 1 END) as no_change
+      FROM current_rankings
+      WHERE period = ? AND content_type = ?
+    `).get(period, contentType);
+
+    console.log(`\n📊 Rankings statistics for ${period} (${contentType}):`);
+    console.log(`📈 Total rankings: ${stats.total_rankings}`);
+    console.log(`⬆️  Moved up: ${stats.moved_up}`);
+    console.log(`⬇️  Moved down: ${stats.moved_down}`);
+    console.log(`➡️  No change: ${stats.no_change}`);
+
+    // Log biggest changes
+    const topChanges = db.prepare(`
+      SELECT tid, rank, previous_rank, rank_change, content_type
+      FROM current_rankings
+      WHERE period = ? AND content_type = ? AND rank_change != 0
+      ORDER BY ABS(rank_change) DESC
+      LIMIT 5
+    `).all(period, contentType);
+
+    console.log('\n🔄 Biggest ranking changes:');
+    topChanges.forEach(change => {
+      console.log(`🎮 ${change.tid} (${change.content_type}): ${change.previous_rank} → ${change.rank} (${change.rank_change > 0 ? '+' : ''}${change.rank_change})`);
+    });
+  });
+
+  // Execute transaction
+  transaction();
+
+  const duration = ((performance.now() - startTime) / 1000).toFixed(2);
+  console.log(`\n✨ Rankings calculated in ${duration}s`);
+}
+
+async function calculateHomePageRankings(db, period) {
+  console.log(`\n🏠 Calculating home page rankings for period: ${period}`);
+  const startTime = performance.now();
+  const limit = HOME_PAGE_LIMIT;
+
+  const transaction = db.transaction(() => {
+    // Get top 12 base games for the period
+    const query = period === 'all'
+      ? `
+        SELECT 
+          g.*,
+          g.total_downloads as downloads,
+          ROW_NUMBER() OVER (ORDER BY g.total_downloads DESC) as rank,
+          json_group_object(date, d.count) as per_date
+        FROM games g
+        LEFT JOIN downloads d ON g.tid = d.tid
+        WHERE g.is_base = 1
+        GROUP BY g.tid
+        ORDER BY g.total_downloads DESC, g.tid ASC
+        LIMIT ${HOME_PAGE_LIMIT}
+      `
+      : `
+        SELECT 
+          g.*,
+          COALESCE(SUM(d.count), 0) as downloads,
+          ROW_NUMBER() OVER (ORDER BY COALESCE(SUM(d.count), 0) DESC) as rank,
+          json_group_object(date, d.count) as per_date
+        FROM games g
+        LEFT JOIN downloads d ON g.tid = d.tid AND date >= date('now', ?)
+        WHERE g.is_base = 1
+        GROUP BY g.tid
+        ORDER BY downloads DESC, g.tid ASC
+        LIMIT ${limit}
+      `;
+
+    // Clear existing home page rankings for this period
+    db.prepare('DELETE FROM home_page_rankings WHERE period = ?').run(period);
+
+    // Insert new rankings
+    const insertHomePageRanking = db.prepare(`
+      INSERT INTO home_page_rankings (
         tid,
         period,
-        contentType,
-        current.rank,
-        current.downloads
+        rank,
+        downloads,
+        last_updated
+      ) VALUES (?, ?, ?, ?, datetime('now'))
+    `);
+
+    const results = period === 'all'
+      ? db.prepare(query).all()
+      : db.prepare(query).all(`-${period === '72h' ? '3' : period === '7d' ? '7' : '30'} days`);
+
+    for (const row of results) {
+      insertHomePageRanking.run(
+        row.tid,
+        period,
+        row.rank,
+        row.downloads
       );
     }
   });
@@ -211,7 +543,7 @@ async function calculatePeriodRankings(db, period, contentType) {
   transaction();
 
   const duration = ((performance.now() - startTime) / 1000).toFixed(2);
-  console.log(`\nRankings calculated in ${duration}s`);
+  console.log(`\n✨ Home page rankings calculated in ${duration}s`);
 }
 
 async function initializeDatabase() {
@@ -308,6 +640,52 @@ async function initializeDatabase() {
     `INSERT OR IGNORE INTO global_stats (id, last_72h, last_7d, last_30d, all_time, last_updated)
     VALUES (1, 0, 0, 0, 0, datetime('now'))`,
 
+    // Analytics tables
+    `CREATE TABLE IF NOT EXISTS analytics_daily (
+      date TEXT NOT NULL,
+      total_downloads INTEGER NOT NULL DEFAULT 0,
+      unique_games INTEGER NOT NULL DEFAULT 0,
+      data_transferred INTEGER NOT NULL DEFAULT 0,
+      base_downloads INTEGER NOT NULL DEFAULT 0,
+      update_downloads INTEGER NOT NULL DEFAULT 0,
+      dlc_downloads INTEGER NOT NULL DEFAULT 0,
+      base_data INTEGER NOT NULL DEFAULT 0,
+      update_data INTEGER NOT NULL DEFAULT 0,
+      dlc_data INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (date)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS analytics_weekly (
+      year INTEGER NOT NULL,
+      week INTEGER NOT NULL CHECK (week >= 1 AND week <= 53),
+      total_downloads INTEGER NOT NULL DEFAULT 0,
+      data_transferred INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (year, week)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS analytics_monthly (
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL CHECK (month >= 1 AND month <= 12),
+      total_downloads INTEGER NOT NULL DEFAULT 0,
+      data_transferred INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (year, month)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS analytics_period_stats (
+      period TEXT NOT NULL CHECK (period IN ('72h', '7d', '30d', 'all')),
+      content_type TEXT NOT NULL CHECK (content_type IN ('base', 'update', 'dlc', 'all')),
+      total_downloads INTEGER NOT NULL DEFAULT 0,
+      data_transferred INTEGER NOT NULL DEFAULT 0,
+      unique_items INTEGER NOT NULL DEFAULT 0,
+      last_updated TEXT NOT NULL,
+      PRIMARY KEY (period, content_type)
+    )`,
+
+    `CREATE INDEX IF NOT EXISTS idx_analytics_daily_date ON analytics_daily(date)`,
+    `CREATE INDEX IF NOT EXISTS idx_analytics_weekly_year ON analytics_weekly(year)`,
+    `CREATE INDEX IF NOT EXISTS idx_analytics_monthly_year ON analytics_monthly(year)`,
+    `CREATE INDEX IF NOT EXISTS idx_analytics_period_stats_period ON analytics_period_stats(period)`,
+
     `CREATE INDEX IF NOT EXISTS idx_downloads_date ON downloads(date)`,
     `CREATE INDEX IF NOT EXISTS idx_games_base ON games(is_base)`,
     `CREATE INDEX IF NOT EXISTS idx_games_downloads ON games(total_downloads)`,
@@ -329,213 +707,6 @@ async function initializeDatabase() {
   return db;
 }
 
-async function processBatch(db, files, gameInfo, startIdx) {
-  try {
-    const endIdx = Math.min(startIdx + BATCH_SIZE, files.length);
-    const batchFiles = files.slice(startIdx, endIdx);
-
-    // Begin transaction for the batch
-    const transaction = db.transaction(() => {
-      const insertGame = db.prepare(`
-        INSERT OR REPLACE INTO games (
-          tid, name, version, size, release_date, is_base, is_update, is_dlc,
-          base_tid, total_downloads, last_updated
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      const insertDownload = db.prepare(`
-        INSERT OR REPLACE INTO downloads (tid, date, count)
-        VALUES (?, ?, ?)
-      `);
-
-      for (const file of batchFiles) {
-        if (!file.endsWith('_downloads.json')) continue;
-
-        const filePath = path.join(DATA_DIR, file);
-        const content = fs.readFileSync(filePath, 'utf8');
-        const stats = JSON.parse(content);
-        const tid = file.replace('_downloads.json', '');
-
-        // Insert game
-        insertGame.run([
-          tid,
-          gameInfo[tid]?.name || null,
-          gameInfo[tid]?.version || null,
-          gameInfo[tid]?.size || null,
-          gameInfo[tid]?.releaseDate || null,
-          tid.endsWith('000') ? 1 : 0,
-          tid.endsWith('800') ? 1 : 0,
-          (!tid.endsWith('000') && !tid.endsWith('800')) ? 1 : 0,
-          tid.endsWith('000') ? null : `${tid.slice(0, 12)}000`,
-          stats.total_downloads || 0,
-          new Date().toISOString()
-        ].map(v => v === undefined ? null : v));
-
-        // Insert downloads
-        Object.entries(stats.per_date).forEach(([date, count]) => {
-          insertDownload.run(tid, date, count);
-        });
-      }
-    });
-
-    // Execute transaction
-    transaction();
-
-    const progress = ((endIdx / files.length) * 100).toFixed(1);
-    console.log(`Progress: ${progress}% (${endIdx}/${files.length})`);
-
-    return endIdx;
-  } catch (error) {
-    console.error(`Error processing batch starting at ${startIdx}:`, error);
-    throw error;
-  }
-}
-
-async function calculatePeriodStats(db) {
-  console.log('\nCalculating global statistics...');
-  const startTime = performance.now();
-
-  // Calculate period stats with evolution percentages and update global stats
-  const globalStats = db.prepare(`
-    WITH period_stats AS (
-      SELECT
-        SUM(CASE WHEN date >= date('now', '-3 days') THEN count ELSE 0 END) as last_72h,
-        SUM(CASE WHEN date >= date('now', '-7 days') THEN count ELSE 0 END) as last_7d,
-        SUM(CASE WHEN date >= date('now', '-30 days') THEN count ELSE 0 END) as last_30d,
-        (SELECT SUM(total_downloads) FROM games) as all_time,
-        SUM(CASE WHEN date >= date('now', '-6 days') AND date < date('now', '-3 days') THEN count ELSE 0 END) as prev_72h,
-        SUM(CASE WHEN date >= date('now', '-14 days') AND date < date('now', '-7 days') THEN count ELSE 0 END) as prev_7d,
-        SUM(CASE WHEN date >= date('now', '-60 days') AND date < date('now', '-30 days') THEN count ELSE 0 END) as prev_30d
-      FROM downloads
-    )
-    SELECT 
-      last_72h,
-      last_7d,
-      last_30d,
-      all_time,
-      CASE 
-        WHEN prev_72h > 0 THEN ROUND(((last_72h - prev_72h) * 100.0 / prev_72h), 1)
-        ELSE 0 
-      END as evolution_72h,
-      CASE 
-        WHEN prev_7d > 0 THEN ROUND(((last_7d - prev_7d) * 100.0 / prev_7d), 1)
-        ELSE 0 
-      END as evolution_7d,
-      CASE 
-        WHEN prev_30d > 0 THEN ROUND(((last_30d - prev_30d) * 100.0 / prev_30d), 1)
-        ELSE 0 
-      END as evolution_30d
-    FROM period_stats
-  `).get();
-  
-  // Update global stats with evolution percentages
-  db.prepare(`
-    UPDATE global_stats
-    SET
-      last_72h = ?,
-      last_7d = ?,
-      last_30d = ?,
-      all_time = ?,
-      last_updated = datetime('now')
-    WHERE id = 1
-  `).run(
-    globalStats.last_72h || 0,
-    globalStats.last_7d || 0,
-    globalStats.last_30d || 0,
-    globalStats.all_time || 0,
-  );
-
-  // Log the results
-  const currentStats = db.prepare('SELECT * FROM global_stats WHERE id = 1').get();
-  if (currentStats) {
-    const formatNumber = num => Number(num || 0).toLocaleString();
-    console.log('\nGlobal Statistics:');
-    console.log(`- Last 72h: ${formatNumber(currentStats.last_72h)} downloads (${globalStats.evolution_72h > 0 ? '+' : ''}${globalStats.evolution_72h}%)`);
-    console.log(`- Last 7d: ${formatNumber(currentStats.last_7d)} downloads (${globalStats.evolution_7d > 0 ? '+' : ''}${globalStats.evolution_7d}%)`);
-    console.log(`- Last 30d: ${formatNumber(currentStats.last_30d)} downloads (${globalStats.evolution_30d > 0 ? '+' : ''}${globalStats.evolution_30d}%)`);
-    console.log(`- All time: ${formatNumber(currentStats.all_time)} downloads`);
-    console.log(`- Last updated: ${currentStats.last_updated}`);
-  } else {
-    console.log('\nWarning: No global statistics available');
-  }
-
-  const duration = ((performance.now() - startTime) / 1000).toFixed(2);
-  console.log(`\nStatistics calculated in ${duration}s`);
-}
-
-// Calculate home page rankings for a specific period
-async function calculateHomePageRankings(db, period) {
-  console.log(`\nCalculating home page rankings for period: ${period}`);
-  const startTime = performance.now();
-
-  const transaction = db.transaction(() => {
-    // Get top 12 base games for the period
-    const query = period === 'all'
-      ? `
-        SELECT 
-          g.tid,
-          g.total_downloads as downloads,
-          ROW_NUMBER() OVER (ORDER BY g.total_downloads DESC) as rank
-        FROM games g
-        WHERE g.is_base = 1
-        ORDER BY g.total_downloads DESC
-        LIMIT ${HOME_PAGE_LIMIT}
-      `
-      : `
-        WITH period_downloads AS (
-          SELECT 
-            g.tid,
-            COALESCE(SUM(d.count), 0) as downloads
-          FROM games g
-          LEFT JOIN downloads d ON g.tid = d.tid
-          WHERE g.is_base = 1
-          AND date >= date('now', ?)
-          GROUP BY g.tid
-        )
-        SELECT 
-          pd.tid,
-          pd.downloads,
-          ROW_NUMBER() OVER (ORDER BY pd.downloads DESC) as rank
-        FROM period_downloads pd
-        ORDER BY pd.downloads DESC
-        LIMIT ${HOME_PAGE_LIMIT}
-      `;
-
-    // Clear existing home page rankings for this period
-    db.prepare('DELETE FROM home_page_rankings WHERE period = ?').run(period);
-
-    // Insert new rankings
-    const insertHomePageRanking = db.prepare(`
-      INSERT INTO home_page_rankings (
-        tid,
-        period,
-        rank,
-        downloads,
-        last_updated
-      ) VALUES (?, ?, ?, ?, datetime('now'))
-    `);
-
-    const results = period === 'all'
-      ? db.prepare(query).all()
-      : db.prepare(query).all(`-${period === '72h' ? '3' : period === '7d' ? '7' : '30'} days`);
-
-    for (const row of results) {
-      insertHomePageRanking.run(
-        row.tid,
-        period,
-        row.rank,
-        row.downloads
-      );
-    }
-  });
-
-  // Execute transaction
-  transaction();
-
-  const duration = ((performance.now() - startTime) / 1000).toFixed(2);
-  console.log(`\nHome page rankings calculated in ${duration}s`);
-}
-
 async function indexGames() {
   console.log('🚀 Starting indexing process...');
   const startTime = performance.now();
@@ -551,48 +722,49 @@ async function indexGames() {
     ]);
 
     const jsonFiles = files.filter(file => file.endsWith('_downloads.json'));
-    console.log(`Found ${jsonFiles.length} JSON files to process`);
+    console.log(`📁 Found ${jsonFiles.length} JSON files to process`);
 
     // Process files in batches
-    for (let i = 0; i < jsonFiles.length; i += BATCH_SIZE) {
+    for (let i = 0; i < jsonFiles.length; i += BATCH_SIZES.FILES) {
       await processBatch(db, jsonFiles, gameInfo, i);
     }
 
+    // Calculate analytics first
+    await calculateAnalytics(db);
+
     // Calculate rankings for each content type
+    console.log('🏆 Calculating rankings...');
+    const startTime = performance.now();
+
+    // Calculate rankings for each period and content type
     for (const period of PERIODS) {
-      await calculatePeriodRankings(db, period, 'base');
-      await calculatePeriodRankings(db, period, 'update');
-      await calculatePeriodRankings(db, period, 'dlc');
+      for (const contentType of CONTENT_TYPES) {
+        await calculatePeriodRankings(db, period, contentType);
+      }
     }
-
-    // Calculate home page rankings for each period
-    for (const period of PERIODS) {
-      await calculateHomePageRankings(db, period);
-    }
-
-    await calculatePeriodStats(db);
-
-    // Log statistics
-    const endTime = performance.now();
-    const duration = ((endTime - startTime) / 1000).toFixed(2);
     
-    // Get stats
-    const totalGames = db.prepare('SELECT COUNT(*) as count FROM games').get().count;
-    const baseGames = db.prepare('SELECT COUNT(*) as count FROM games WHERE is_base = 1').get().count;
-    const totalDownloads = db.prepare('SELECT SUM(total_downloads) as sum FROM games').get().sum || 0;
+    const duration = ((performance.now() - startTime) / 1000).toFixed(2);
+    console.log(`\n✨ All rankings calculated in ${duration}s`);
+    
+    // Calculate home page rankings
+    console.log('🏠 Calculating home page rankings...');
+    await calculateHomePageRankings(db, '72h');
+    await calculateHomePageRankings(db, '7d'); 
+    await calculateHomePageRankings(db, '30d');
+    await calculateHomePageRankings(db, 'all');
 
-    console.log('\n✨ Final Statistics:');
-    console.log(`- Indexing duration: ${duration} seconds`);
-    console.log(`- Total games indexed: ${totalGames}`);
-    console.log(`- Base games: ${baseGames}`);
-    console.log(`- Total downloads: ${totalDownloads.toLocaleString()}`);
-    console.log(`- Database location: ${DB_PATH}`);
+    const totalDuration = ((performance.now() - startTime) / 1000).toFixed(2);
+    console.log(`\n🎉 Indexing completed in ${totalDuration}s`);
 
   } catch (error) {
-    console.error('\n❌ Fatal error during indexing:', error);
+    console.error('❌ Error during indexing:', error);
     process.exit(1);
+  } finally {
+    if (db) {
+      db.close();
+    }
   }
 }
 
-// Run indexer
+// Start indexing
 indexGames();

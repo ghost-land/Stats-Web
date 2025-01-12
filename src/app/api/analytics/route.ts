@@ -1,53 +1,67 @@
 import { NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db';
 import { formatFileSize } from '@/lib/utils';
+import { getAnalyticsCache, setAnalyticsCache } from '@/lib/analytics-cache'; 
+
+interface GameTypeStats {
+  base_downloads: number;
+  update_downloads: number;
+  dlc_downloads: number;
+  base_data_transferred: number;
+  update_data_transferred: number;
+  dlc_data_transferred: number;
+  unique_base_games: number;
+  unique_updates: number;
+  unique_dlc: number;
+}
+
+interface YearRow {
+  year: number;
+}
+
+interface DailyStats {
+  date: string;
+  total_downloads: number;
+  unique_games: number;
+  data_transferred: number;
+  base_downloads: number;
+  update_downloads: number;
+  dlc_downloads: number;
+  base_data: number;
+  update_data: number;
+  dlc_data: number;
+}
+
+interface YearRow {
+  year: number;
+}
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
-function getDateRange(
+interface DateRange {
+  start: string;
+  end: string;
+}
+
+async function getDateRange(
   period?: string,
   startDate?: string,
   endDate?: string,
   year?: string,
   month?: string
-): { start: string; end: string } {
-  const now = new Date();
-
-  if (period) {
-    switch (period) {
-      case '72h':
-        return {
-          start: new Date(now.getTime() - 72 * 60 * 60 * 1000).toISOString().split('T')[0],
-          end: now.toISOString().split('T')[0]
-        };
-      case '7d':
-        return {
-          start: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          end: now.toISOString().split('T')[0]
-        };
-      case '30d':
-        return {
-          start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          end: now.toISOString().split('T')[0]
-        };
-      case 'all':
-        return {
-          start: '1970-01-01',
-          end: now.toISOString().split('T')[0]
-        };
-    }
-  }
-
+): Promise<DateRange> {
   if (startDate && endDate) {
     return { start: startDate, end: endDate };
   }
 
   if (year && month) {
     const date = new Date(parseInt(year), parseInt(month) - 1);
+    const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
     return {
-      start: new Date(date.getFullYear(), date.getMonth(), 1).toISOString().split('T')[0],
-      end: new Date(date.getFullYear(), date.getMonth() + 1, 0).toISOString().split('T')[0]
+      start: `${year}-${month.padStart(2, '0')}-01`,
+      end: `${year}-${month.padStart(2, '0')}-${lastDay.getDate()}`
     };
   }
 
@@ -58,341 +72,205 @@ function getDateRange(
     };
   }
 
-  // Default to last 30 days
+  if (period === 'all') {
+    // Get the earliest date from the downloads table
+    const db = await getDatabase();
+    if (!db) throw new Error('Database connection failed');
+    
+    const earliestDate = db.prepare('SELECT MIN(date) as date FROM downloads').get() as { date: string };
+    return {
+      start: earliestDate.date,
+      end: new Date().toISOString().split('T')[0]
+    };
+  }
+
+  // Default to last 30 days if no period specified
+  const end = new Date();
+  const start = new Date();
+  const days = period === '72h' ? 3 : period === '7d' ? 7 : 30;
+  start.setDate(start.getDate() - days);
+
   return {
-    start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    end: now.toISOString().split('T')[0]
+    start: start.toISOString().split('T')[0],
+    end: end.toISOString().split('T')[0]
   };
 }
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
+    
+    // Check cache first
+    try {
+      const cachedData = await getAnalyticsCache(searchParams);
+      if (cachedData) {
+        return NextResponse.json(cachedData);
+      }
+    } catch (error) {
+      console.error('Error checking analytics cache:', error);
+    }
+
+    const db = await getDatabase();
+    if (!db || !db.open) {
+      return NextResponse.json({ 
+        error: 'Database connection failed',
+        details: 'Could not establish database connection'
+      }, { status: 503 });
+    }
+
     const period = searchParams.get('period') || undefined;
     const startDate = searchParams.get('startDate') || undefined;
     const endDate = searchParams.get('endDate') || undefined;
     const year = searchParams.get('year') || undefined;
     const month = searchParams.get('month') || undefined;
 
-    const dateRange = getDateRange(period, startDate, endDate, year, month);
+    const dateRange = await getDateRange(period, startDate, endDate, year, month);
 
-    const db = await getDatabase();
-    if (!db) {
-      throw new Error('Database connection failed');
-    }
+    // Prepare all queries in parallel
+    const queries = {
+      dailyStats: db.prepare(`
+        SELECT * FROM analytics_daily
+        WHERE date >= ? AND date <= ?
+        ORDER BY date ASC
+      `),
 
-    // Get daily downloads
-    const dailyDownloads = db.prepare(`
-      SELECT 
-        date,
-        SUM(count) as downloads
-      FROM downloads
-      WHERE date BETWEEN ? AND ?
-      GROUP BY date
-      ORDER BY date
-    `).all(dateRange.start, dateRange.end) as { date: string; downloads: number }[];
+      monthlyStats: db.prepare(`
+        SELECT * FROM analytics_monthly
+        WHERE (year > ? OR (year = ? AND month >= ?))
+          AND (year < ? OR (year = ? AND month <= ?))
+        ORDER BY year ASC, month ASC
+      `),
 
-    // Get monthly downloads
-    const monthlyDownloads = db.prepare(`
-      SELECT 
-        strftime('%Y-%m', date) as month,
-        SUM(count) as downloads
-      FROM downloads
-      WHERE date BETWEEN ? AND ?
-      GROUP BY month
-      ORDER BY month
-    `).all(dateRange.start, dateRange.end) as { month: string; downloads: number }[];
+      periodStats: db.prepare(`
+        SELECT * FROM analytics_period_stats
+        WHERE period = ? OR period = 'all'
+        AND last_updated >= datetime('now', '-1 hour')
+        ORDER BY period ASC, content_type ASC
+      `),
 
-    // Get available years
-    const availableYears = db.prepare(`
-      SELECT DISTINCT strftime('%Y', date) as year
-      FROM downloads d
-      JOIN games g ON d.tid = g.tid
-      WHERE g.is_base = 1
-      ORDER BY year DESC
-    `).all() as { year: string }[];
+      availableYears: db.prepare(`
+        SELECT DISTINCT year as year FROM analytics_monthly ORDER BY year DESC
+      `),
 
-    // Get additional statistics
-    const additionalStats = db.prepare(`
-      WITH daily_stats AS (
+      hourlyDistribution: db.prepare(`
+        WITH RECURSIVE hours(hour) AS (
+          SELECT 0
+          UNION ALL
+          SELECT hour + 1 FROM hours WHERE hour < 23
+        )
         SELECT 
-          date,
-          SUM(count) as daily_total,
-          COUNT(DISTINCT tid) as unique_games
-        FROM downloads
-        WHERE date BETWEEN ? AND ?
-        GROUP BY date
-      )
-      SELECT
-        ROUND(AVG(daily_total)) as average_daily_downloads,
-        MAX(daily_total) as highest_daily_downloads,
-        MIN(CASE WHEN daily_total > 0 THEN daily_total END) as lowest_daily_downloads,
-        ROUND(AVG(unique_games)) as average_daily_games,
-        MAX(unique_games) as max_daily_games,
-        MIN(unique_games) as min_daily_games
-      FROM daily_stats
-    `).get(dateRange.start, dateRange.end) as {
-      average_daily_downloads: number;
-      highest_daily_downloads: number;
-      lowest_daily_downloads: number;
-      average_daily_games: number;
-      max_daily_games: number;
-      min_daily_games: number;
+          hours.hour,
+          ROUND(AVG(COALESCE(hourly_downloads.download_count, 0))) as average_downloads
+        FROM hours
+        LEFT JOIN (
+          SELECT 
+            CAST(strftime('%H', datetime(date || ' ' || (
+              CASE 
+                WHEN instr(date, ' ') > 0 THEN substr(date, instr(date, ' ') + 1)
+                ELSE '00:00:00'
+              END
+            ))) AS INTEGER) as hour,
+            SUM(count) as download_count
+          FROM downloads
+          WHERE date BETWEEN ? AND ?
+          GROUP BY hour
+        ) hourly_downloads ON hours.hour = hourly_downloads.hour
+        GROUP BY hours.hour
+        ORDER BY hours.hour
+      `),
     };
 
-    // Get game type distribution
-    const gameTypeStats = db.prepare(`
-      WITH type_stats AS (
+    // Execute all queries in parallel using Promise.all
+    const [
+      dailyStats,
+      monthlyStats,
+      periodStats,
+      availableYears,
+      hourlyDistribution,
+      weeklyDistribution,
+      gameTypeStats
+    ] = await Promise.all([
+      queries.dailyStats.all(dateRange.start, dateRange.end),
+      queries.monthlyStats.all(
+        dateRange.start.slice(0, 4), dateRange.start.slice(0, 4), dateRange.start.slice(5, 7),
+        dateRange.end.slice(0, 4), dateRange.end.slice(0, 4), dateRange.end.slice(5, 7)
+      ),
+      queries.periodStats.all(period || '30d'),
+      queries.availableYears.all(),
+      queries.hourlyDistribution.all(dateRange.start, dateRange.end),
+      db.prepare(`
         SELECT 
-          CAST(COALESCE(SUM(CASE WHEN is_base = 1 THEN d.count ELSE 0 END), 0) AS INTEGER) as base_downloads,
-          CAST(COALESCE(SUM(CASE WHEN is_base = 1 THEN CAST(d.count AS INTEGER) * CAST(COALESCE(g.size, 0) AS INTEGER) ELSE 0 END), 0) AS INTEGER) as base_data_transferred,
-          CAST(COALESCE(SUM(CASE WHEN is_update = 1 THEN d.count ELSE 0 END), 0) AS INTEGER) as update_downloads,
-          CAST(COALESCE(SUM(CASE WHEN is_update = 1 THEN CAST(d.count AS INTEGER) * CAST(COALESCE(g.size, 0) AS INTEGER) ELSE 0 END), 0) AS INTEGER) as update_data_transferred,
-          CAST(COALESCE(SUM(CASE WHEN is_dlc = 1 THEN d.count ELSE 0 END), 0) AS INTEGER) as dlc_downloads,
-          CAST(COALESCE(SUM(CASE WHEN is_dlc = 1 THEN CAST(d.count AS INTEGER) * CAST(COALESCE(g.size, 0) AS INTEGER) ELSE 0 END), 0) AS INTEGER) as dlc_data_transferred,
-          COUNT(DISTINCT CASE WHEN is_base = 1 THEN g.tid END) as unique_base_games,
-          COUNT(DISTINCT CASE WHEN is_update = 1 THEN g.tid END) as unique_updates,
-          COUNT(DISTINCT CASE WHEN is_dlc = 1 THEN g.tid END) as unique_dlc
+          CASE CAST(strftime('%w', date) AS INTEGER)
+            WHEN 0 THEN 'Sunday'
+            WHEN 1 THEN 'Monday'
+            WHEN 2 THEN 'Tuesday'
+            WHEN 3 THEN 'Wednesday'
+            WHEN 4 THEN 'Thursday'
+            WHEN 5 THEN 'Friday'
+            WHEN 6 THEN 'Saturday'
+          END as day,
+          ROUND(AVG(daily_downloads)) as average_downloads
+        FROM (
+          SELECT date, SUM(count) as daily_downloads
+          FROM downloads
+          WHERE date BETWEEN ? AND ?
+          GROUP BY date
+        )
+        GROUP BY strftime('%w', date)
+        ORDER BY strftime('%w', date)
+      `).all(dateRange.start, dateRange.end),
+      db.prepare(`
+        SELECT
+          SUM(CASE WHEN g.is_base = 1 THEN d.count ELSE 0 END) as base_downloads,
+          SUM(CASE WHEN g.is_update = 1 THEN d.count ELSE 0 END) as update_downloads,
+          SUM(CASE WHEN g.is_dlc = 1 THEN d.count ELSE 0 END) as dlc_downloads,
+          SUM(CASE WHEN g.is_base = 1 THEN CAST(d.count AS INTEGER) * CAST(COALESCE(g.size, 0) AS INTEGER) ELSE 0 END) as base_data_transferred,
+          SUM(CASE WHEN g.is_update = 1 THEN CAST(d.count AS INTEGER) * CAST(COALESCE(g.size, 0) AS INTEGER) ELSE 0 END) as update_data_transferred,
+          SUM(CASE WHEN g.is_dlc = 1 THEN CAST(d.count AS INTEGER) * CAST(COALESCE(g.size, 0) AS INTEGER) ELSE 0 END) as dlc_data_transferred,
+          COUNT(DISTINCT CASE WHEN g.is_base = 1 THEN g.tid END) as unique_base_games,
+          COUNT(DISTINCT CASE WHEN g.is_update = 1 THEN g.tid END) as unique_updates,
+          COUNT(DISTINCT CASE WHEN g.is_dlc = 1 THEN g.tid END) as unique_dlc
         FROM downloads d
         JOIN games g ON d.tid = g.tid
         WHERE date BETWEEN ? AND ?
-      )
-      SELECT *,
-        COALESCE(base_downloads, 0) + COALESCE(update_downloads, 0) + COALESCE(dlc_downloads, 0) as total_downloads,
-        COALESCE(base_data_transferred, 0) + COALESCE(update_data_transferred, 0) + COALESCE(dlc_data_transferred, 0) as total_data_transferred
-      FROM type_stats
-    `).get(dateRange.start, dateRange.end);
+      `).get(dateRange.start, dateRange.end)
+    ]);
 
-    interface GameTypeStats {
-      base_downloads: number;
-      base_data_transferred: number;
-      update_downloads: number;
-      update_data_transferred: number;
-      dlc_downloads: number;
-      dlc_data_transferred: number;
-      unique_base_games: number;
-      unique_updates: number;
-      unique_dlc: number;
-      total_downloads: number;
-      total_data_transferred: number;
-    }
-
-    const typedGameTypeStats = gameTypeStats as GameTypeStats;
-
-    // Get hourly distribution
-    const hourlyStats = db.prepare(`
-      WITH RECURSIVE hours(hour) AS (
-        SELECT 0
-        UNION ALL
-        SELECT hour + 1 FROM hours WHERE hour < 23
-      )
-      SELECT 
-        hours.hour,
-        ROUND(AVG(COALESCE(hourly_downloads.download_count, 0))) as average_downloads
-      FROM hours
-      LEFT JOIN (
-        SELECT 
-          CAST(strftime('%H', datetime(date || ' ' || (
-            CASE 
-              WHEN instr(date, ' ') > 0 THEN substr(date, instr(date, ' ') + 1)
-              ELSE '00:00:00'
-            END
-          ))) AS INTEGER) as hour,
-          SUM(count) as download_count
-        FROM downloads
-        WHERE date BETWEEN ? AND ?
-        GROUP BY hour
-      ) hourly_downloads ON hours.hour = hourly_downloads.hour
-      GROUP BY hours.hour
-      ORDER BY hours.hour
-    `).all(dateRange.start, dateRange.end) as { hour: number; average_downloads: number }[];
-
-    // Get weekly distribution
-    const weeklyStats = db.prepare(`
-      SELECT 
-        CASE CAST(strftime('%w', date) AS INTEGER)
-          WHEN 0 THEN 'Sunday'
-          WHEN 1 THEN 'Monday'
-          WHEN 2 THEN 'Tuesday'
-          WHEN 3 THEN 'Wednesday'
-          WHEN 4 THEN 'Thursday'
-          WHEN 5 THEN 'Friday'
-          WHEN 6 THEN 'Saturday'
-        END as day,
-        ROUND(AVG(daily_downloads)) as average_downloads
-      FROM (
-        SELECT date, SUM(count) as daily_downloads
-        FROM downloads
-        WHERE date BETWEEN ? AND ?
-        GROUP BY date
-      )
-      GROUP BY strftime('%w', date)
-      ORDER BY strftime('%w', date)
-    `).all(dateRange.start, dateRange.end) as { day: string; average_downloads: number }[];
-
-    // Get data transfer trends
-    const dataTransferTrends = db.prepare(`
-      SELECT 
-        date,
-        SUM(CAST(d.count AS INTEGER) * CAST(COALESCE(g.size, 0) AS INTEGER)) as data_transferred
-      FROM downloads d
-      JOIN games g ON d.tid = g.tid
-      WHERE date BETWEEN ? AND ?
-      GROUP BY date
-      ORDER BY date
-    `).all(dateRange.start, dateRange.end) as { date: string; data_transferred: number }[];
-
-    // Get hourly data transfer
-    const hourlyDataTransfer = db.prepare(`
-      SELECT 
-        CAST(strftime('%H', datetime(date || ' ' || (
-          CASE 
-            WHEN instr(date, ' ') > 0 THEN substr(date, instr(date, ' ') + 1)
-            ELSE '00:00:00'
-          END
-        ))) AS INTEGER) as hour,
-        SUM(CAST(d.count AS INTEGER) * CAST(COALESCE(g.size, 0) AS INTEGER)) as data_transferred
-      FROM downloads d
-      JOIN games g ON d.tid = g.tid
-      WHERE date BETWEEN ? AND ?
-      GROUP BY hour
-      ORDER BY hour
-    `).all(dateRange.start, dateRange.end) as { hour: number; data_transferred: number }[];
-
-    // Get average game size trends
-    const gameSizeTrends = db.prepare(`
-      SELECT 
-        date,
-        ROUND(AVG(CAST(COALESCE(g.size, 0) AS INTEGER))) as average_size,
-        MAX(CAST(COALESCE(g.size, 0) AS INTEGER)) as max_size,
-        MIN(CASE WHEN g.size > 0 THEN CAST(g.size AS INTEGER) END) as min_size
-      FROM downloads d
-      JOIN games g ON d.tid = g.tid
-      WHERE date BETWEEN ? AND ?
-      GROUP BY date
-      ORDER BY date
-    `).all(dateRange.start, dateRange.end) as { 
-      date: string; 
-      average_size: number;
-      max_size: number;
-      min_size: number;
-    }[];
-
-    // Get peak statistics
-    const peakStats = db.prepare(`
-      WITH hourly_downloads AS (
-        SELECT 
-          CAST(strftime('%H', datetime(date || ' ' || (
-            CASE 
-              WHEN instr(date, ' ') > 0 THEN substr(date, instr(date, ' ') + 1)
-              ELSE '00:00:00'
-            END
-          ))) AS INTEGER) as hour,
-          SUM(count) as download_count
-        FROM downloads
-        WHERE date BETWEEN ? AND ?
-        GROUP BY hour
-      ),
-      daily_downloads AS (
-        SELECT date, SUM(count) as download_count
-        FROM downloads
-        WHERE date BETWEEN ? AND ?
-        GROUP BY date
-      )
-      SELECT
-        (SELECT hour FROM hourly_downloads ORDER BY download_count DESC LIMIT 1) as peak_hour,
-        (SELECT MAX(download_count) FROM hourly_downloads) as peak_hour_downloads,
-        (SELECT date FROM daily_downloads ORDER BY download_count DESC LIMIT 1) as most_active_day,
-        (SELECT MAX(download_count) FROM daily_downloads) as most_active_day_downloads
-    `).get(dateRange.start, dateRange.end, dateRange.start, dateRange.end) as {
-      peak_hour: number;
-      peak_hour_downloads: number;
-      most_active_day: string;
-      most_active_day_downloads: number;
+    // Format data for response
+    const formattedData = {
+      dailyStats,
+      monthlyStats,
+      periodStats,
+      availableYears: (availableYears as YearRow[]).map(y => y.year),
+      hourlyDistribution: hourlyDistribution as { hour: number; average_downloads: number }[],
+      weeklyDistribution: weeklyDistribution as { day: string; average_downloads: number }[],
+      dataTransferTrends: (dailyStats as DailyStats[]).map((d: DailyStats) => ({
+        date: d.date,
+        data_transferred: d.data_transferred
+      })) as { date: string; data_transferred: number }[],
+      gameTypeStats: {
+        base_downloads: (gameTypeStats as GameTypeStats)?.base_downloads || 0,
+        update_downloads: (gameTypeStats as GameTypeStats)?.update_downloads || 0,
+        dlc_downloads: (gameTypeStats as GameTypeStats)?.dlc_downloads || 0,
+        base_data_transferred: (gameTypeStats as GameTypeStats)?.base_data_transferred || 0,
+        update_data_transferred: (gameTypeStats as GameTypeStats)?.update_data_transferred || 0,
+        dlc_data_transferred: (gameTypeStats as GameTypeStats)?.dlc_data_transferred || 0,
+        unique_base_games: (gameTypeStats as GameTypeStats)?.unique_base_games || 0,
+        unique_updates: (gameTypeStats as GameTypeStats)?.unique_updates || 0,
+        unique_dlc: (gameTypeStats as GameTypeStats)?.unique_dlc || 0,
+        base_data_size: formatFileSize((gameTypeStats as GameTypeStats)?.base_data_transferred || 0),
+        update_data_size: formatFileSize((gameTypeStats as GameTypeStats)?.update_data_transferred || 0),
+        dlc_data_size: formatFileSize((gameTypeStats as GameTypeStats)?.dlc_data_transferred || 0)
+      }
     };
 
-    // Get game statistics
-    const gameStats = db.prepare(`
-      SELECT
-        COUNT(DISTINCT d.tid) as total_unique_games
-      FROM downloads d
-      JOIN games g ON d.tid = g.tid
-      WHERE date BETWEEN ? AND ?
-    `).get(dateRange.start, dateRange.end) as {
-      total_unique_games: number;
-    };
+    // Save to cache before returning
+    setAnalyticsCache(searchParams, formattedData);
 
-    // Calculate statistics
-    const stats = {
-      total: dailyDownloads.reduce((sum, day) => sum + day.downloads, 0),
-      dailyAverage: Math.round(dailyDownloads.reduce((sum, day) => sum + day.downloads, 0) / dailyDownloads.length),
-      peakDay: dailyDownloads.reduce((peak, day) => 
-        day.downloads > (peak?.downloads || 0) ? day : peak
-      , { date: '', downloads: 0 }),
-      growthRate: 0,
-      total_data_size: formatFileSize(typedGameTypeStats ? (
-        typedGameTypeStats.base_data_transferred + 
-        typedGameTypeStats.update_data_transferred + 
-        typedGameTypeStats.dlc_data_transferred
-      ) : 0)
-    };
-
-    // Calculate growth rate
-    if (dailyDownloads.length > 1) {
-      const midPoint = Math.floor(dailyDownloads.length / 2);
-      const firstHalf = dailyDownloads.slice(0, midPoint).reduce((sum, day) => sum + day.downloads, 0);
-      const secondHalf = dailyDownloads.slice(midPoint).reduce((sum, day) => sum + day.downloads, 0);
-      stats.growthRate = Math.round(((secondHalf - firstHalf) / firstHalf) * 100);
-    }
-
-    return NextResponse.json({
-      dailyLabels: dailyDownloads.map(day => day.date),
-      dailyDownloads: dailyDownloads.map(day => day.downloads),
-      monthlyLabels: monthlyDownloads.map(month => month.month),
-      monthlyDownloads: monthlyDownloads.map(month => month.downloads),
-      dataTransferTrends: {
-        labels: dataTransferTrends.map(day => day.date),
-        data: dataTransferTrends.map(day => day.data_transferred),
-      },
-      hourlyDataTransfer: {
-        labels: hourlyDataTransfer.map(hour => hour.hour.toString().padStart(2, '0') + ':00'),
-        data: hourlyDataTransfer.map(hour => hour.data_transferred),
-      },
-      gameSizeTrends: {
-        labels: gameSizeTrends.map(day => day.date),
-        averageSize: gameSizeTrends.map(day => day.average_size),
-        maxSize: gameSizeTrends.map(day => day.max_size),
-        minSize: gameSizeTrends.map(day => day.min_size),
-      },
-      stats,
-      availableYears: availableYears.map(y => y.year),
-      additionalStats,
-      gameTypeStats: typedGameTypeStats ? {
-        base_downloads: typedGameTypeStats.base_downloads,
-        update_downloads: typedGameTypeStats.update_downloads,
-        dlc_downloads: typedGameTypeStats.dlc_downloads,
-        base_data_size: formatFileSize(typedGameTypeStats.base_data_transferred),
-        update_data_size: formatFileSize(typedGameTypeStats.update_data_transferred),
-        dlc_data_size: formatFileSize(typedGameTypeStats.dlc_data_transferred),
-        unique_base_games: typedGameTypeStats.unique_base_games,
-        unique_updates: typedGameTypeStats.unique_updates,
-        unique_dlc: typedGameTypeStats.unique_dlc
-      } : {
-        base_downloads: 0,
-        update_downloads: 0,
-        dlc_downloads: 0,
-        base_data_size: '0 B',
-        update_data_size: '0 B',
-        dlc_data_size: '0 B',
-        unique_base_games: 0,
-        unique_updates: 0,
-        unique_dlc: 0
-      },
-      hourlyStats,
-      weeklyStats,
-      peakStats,
-      gameStats: {
-        total_unique_games: gameStats.total_unique_games
+    return NextResponse.json(formattedData, {
+      headers: {
+        'Cache-Control': 'no-store, must-revalidate',
+        'Pragma': 'no-cache'
       }
     });
   } catch (error) {

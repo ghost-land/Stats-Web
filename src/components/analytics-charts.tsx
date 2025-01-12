@@ -1,9 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Line, Bar } from 'react-chartjs-2';
 import { useTheme } from 'next-themes';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { formatFileSize } from '@/lib/utils';
+import { EmptyState } from '@/components/empty-state';
+import { useAnalyticsStore } from '@/lib/analytics-store';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -37,38 +41,50 @@ interface AnalyticsChartsProps {
   month?: string;
 }
 
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
 interface WeeklyStats {
   day: string;
   average_downloads: number;
 }
 
 interface AnalyticsData {
-  dailyLabels: string[];
-  dailyDownloads: number[];
-  monthlyLabels: string[];
-  monthlyDownloads: number[];
+  dailyStats: {
+    date: string;
+    total_downloads: number;
+    unique_games: number;
+    data_transferred: number;
+  }[];
+  monthlyStats: {
+    year: number;
+    month: number;
+    total_downloads: number;
+    data_transferred: number;
+  }[];
+  periodStats: {
+    period: string;
+    content_type: string;
+    total_downloads: number;
+    data_transferred: number;
+    unique_items: number;
+    growth_rate: number;
+  }[];
+  weeklyDistribution: WeeklyStats[];
+  hourlyDistribution: {
+    hour: number;
+    average_downloads: number;
+  }[];
   dataTransferTrends: {
-    labels: string[];
-    data: number[];
-  };
-  weeklyStats: WeeklyStats[];
-  stats: {
-    total: number;
-    total_data_size: string;
-    growthRate: number;
-  };
-  additionalStats: {
-    average_daily_downloads: number;
-    highest_daily_downloads: number;
-    lowest_daily_downloads: number;
-    average_daily_games: number;
-    max_daily_games: number;
-    min_daily_games: number;
-  };
+    date: string;
+    data_transferred: number;
+  }[];
   gameTypeStats: {
     base_downloads: number;
     update_downloads: number;
     dlc_downloads: number;
+    base_data_transferred: number;
+    update_data_transferred: number;
+    dlc_data_transferred: number;
     base_data_size: string;
     update_data_size: string;
     dlc_data_size: string;
@@ -82,10 +98,7 @@ interface AnalyticsData {
     most_active_day: string;
     most_active_day_downloads: number;
   };
-  gameStats: {
-    total_unique_games: number;
-    average_game_size: string;
-  };
+  availableYears: number[];
 }
 
 export function AnalyticsCharts({ 
@@ -95,39 +108,55 @@ export function AnalyticsCharts({
   year,
   month 
 }: AnalyticsChartsProps) {
+  const { data, setData } = useAnalyticsStore();
   const { theme } = useTheme();
-  const [data, setData] = useState<AnalyticsData | null>(null);
   const isDark = theme === 'dark';
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      // Ensure we have a period parameter
+      if (!period && !startDate && !endDate && !year && !month) {
+        period = 'all';
+      }
+
+      const params = new URLSearchParams();
+      if (period) params.set('period', period);
+      if (startDate) params.set('startDate', startDate);
+      if (endDate) params.set('endDate', endDate);
+      if (year) params.set('year', year);
+      if (month) params.set('month', month);
+
+      const response = await fetch(`/api/analytics?${params.toString()}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.details || 'Failed to load analytics data');
+      }
+      
+      const newData = await response.json();
+      setData(newData);
+    } catch (error) {
+      console.error('Error fetching analytics data:', error);
+      setError('Failed to load analytics data. Please try refreshing the page.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [period, startDate, endDate, year, month, setData]);
 
   useEffect(() => {
-    // Fetch data based on filters
-    const fetchData = async () => {
-      try {
-        setIsLoading(true);
-
-        const params = new URLSearchParams();
-        if (period) params.set('period', period);
-        if (startDate) params.set('startDate', startDate);
-        if (endDate) params.set('endDate', endDate);
-        if (year) params.set('year', year);
-        if (month) params.set('month', month);
-
-        const response = await fetch(`/api/analytics?${params.toString()}`);
-        const data = await response.json();
-        setData(data);
-      } catch (error) {
-        console.error('Error fetching analytics data:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     fetchData();
-  }, [period, startDate, endDate, year, month]);
+  }, [fetchData]);
 
-  if (!data) {
-    return <div className="flex justify-center items-center min-h-[200px]">Loading...</div>;
+  if (isLoading) {
+    return <LoadingSpinner />;
+  }
+
+  if (error) {
+    return <EmptyState title="Error" message={error} />;
   }
 
   const chartOptions = {
@@ -172,7 +201,7 @@ export function AnalyticsCharts({
     },
   };
 
-  return (
+  return data ? (
     <div className="grid gap-6">
       {/* Tracking Period Info */}
       <Card className="p-6 bg-amber-50 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800">
@@ -209,10 +238,10 @@ export function AnalyticsCharts({
         <div className="h-[400px]">
           <Line
             data={{
-              labels: data.dailyLabels,
+              labels: data.dailyStats.map(d => d.date),
               datasets: [{
                 label: 'Downloads',
-                data: data.dailyDownloads,
+                data: data.dailyStats.map(d => d.total_downloads),
                 borderColor: 'rgb(99, 102, 241)',
                 backgroundColor: 'rgba(99, 102, 241, 0.1)',
                 fill: true,
@@ -229,10 +258,10 @@ export function AnalyticsCharts({
         <div className="h-[400px]">
           <Bar
             data={{
-              labels: data.monthlyLabels,
+              labels: data.monthlyStats.map(m => `${m.year}-${m.month}`),
               datasets: [{
                 label: 'Downloads',
-                data: data.monthlyDownloads,
+                data: data.monthlyStats.map(m => m.total_downloads),
                 backgroundColor: 'rgba(99, 102, 241, 0.8)',
               }],
             }}
@@ -241,7 +270,7 @@ export function AnalyticsCharts({
         </div>
       </Card>
 
-      {/* Download Distribution Chart */}
+      {/* Content Type Distribution Chart */}
       <Card className="p-6">
         <h3 className="text-lg font-semibold mb-4">Download Distribution by Type</h3>
         <div className="h-[400px]">
@@ -252,9 +281,9 @@ export function AnalyticsCharts({
               datasets: [{
                 label: 'Downloads',
                 data: [
-                  data.gameTypeStats.base_downloads,
-                  data.gameTypeStats.update_downloads,
-                  data.gameTypeStats.dlc_downloads
+                  data.periodStats.find(s => s.content_type === 'base')?.total_downloads || 0,
+                  data.periodStats.find(s => s.content_type === 'update')?.total_downloads || 0,
+                  data.periodStats.find(s => s.content_type === 'dlc')?.total_downloads || 0
                 ],
                 backgroundColor: [
                   'rgba(99, 102, 241, 0.8)',
@@ -275,14 +304,14 @@ export function AnalyticsCharts({
 
       {/* Data Transfer Trends */}
       <Card className="p-6">
-        <h3 className="text-lg font-semibold mb-4">Daily Data Transfer</h3>
+        <h3 className="text-lg font-semibold mb-4">Data Transfer Trends</h3>
         <div className="h-[400px]">
           <Line
             data={{
-              labels: data.dataTransferTrends.labels,
+              labels: data.dailyStats.map(d => d.date),
               datasets: [{
                 label: 'Data Transferred',
-                data: data.dataTransferTrends.data.map(bytes => bytes / (1024 * 1024 * 1024)), // Convert to GB
+                data: data.dataTransferTrends.map(d => d.data_transferred / (1024 * 1024 * 1024)),
                 borderColor: 'rgb(139, 92, 246)',
                 backgroundColor: 'rgba(139, 92, 246, 0.1)',
                 fill: true,
@@ -292,14 +321,7 @@ export function AnalyticsCharts({
               ...chartOptions,
               scales: {
                 ...chartOptions.scales,
-                y: {
-                  ...chartOptions.scales.y,
-                  title: { display: true, text: 'Data Transferred (GB)' },
-                  ticks: {
-                    ...chartOptions.scales.y.ticks,
-                    callback: (value) => typeof value === 'number' ? value.toFixed(2) + ' GB' : value
-                  }
-                }
+                y: { ...chartOptions.scales.y, title: { display: true, text: 'Data Transferred (GB)' } }
               }
             }}
           />
@@ -310,55 +332,60 @@ export function AnalyticsCharts({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         <Card className="p-6">
           <h4 className="text-sm font-medium text-muted-foreground">Total Downloads</h4>
-          <p className="text-2xl font-bold mt-2">{data.stats.total.toLocaleString()}</p>
+          <p className="text-2xl font-bold mt-2">{data.periodStats.find(s => s.content_type === 'all')?.total_downloads.toLocaleString()}</p>
           <p className="text-sm text-muted-foreground mt-1">
-            Data Size: {data.stats.total_data_size}
+            Data Size: {formatFileSize(data.gameTypeStats.base_data_transferred + data.gameTypeStats.update_data_transferred + data.gameTypeStats.dlc_data_transferred)}
           </p>
         </Card>
         
         <Card className="p-6">
           <h4 className="text-sm font-medium text-muted-foreground">Average Daily Downloads</h4>
-          <p className="text-2xl font-bold mt-2">{data.additionalStats.average_daily_downloads.toLocaleString()}</p>
+          <p className="text-2xl font-bold mt-2">{Math.round(data.dailyStats.reduce((sum, d) => sum + d.total_downloads, 0) / data.dailyStats.length).toLocaleString()}</p>
           <p className="text-sm text-muted-foreground mt-1">
-            Range: {data.additionalStats.lowest_daily_downloads.toLocaleString()} - {data.additionalStats.highest_daily_downloads.toLocaleString()}
+            Range: {Math.min(...data.dailyStats.map(d => d.total_downloads)).toLocaleString()} - {Math.max(...data.dailyStats.map(d => d.total_downloads)).toLocaleString()}
           </p>
         </Card>
         
         <Card className="p-6">
           <h4 className="text-sm font-medium text-muted-foreground">Daily Active Games</h4>
-          <p className="text-2xl font-bold mt-2">{data.additionalStats.average_daily_games.toLocaleString()}</p>
+          <p className="text-2xl font-bold mt-2">{Math.round(data.dailyStats.reduce((sum, d) => sum + d.unique_games, 0) / data.dailyStats.length).toLocaleString()}</p>
           <p className="text-sm text-muted-foreground mt-1">
-            Range: {data.additionalStats.min_daily_games.toLocaleString()} - {data.additionalStats.max_daily_games.toLocaleString()}
+            Range: {Math.min(...data.dailyStats.map(d => d.unique_games)).toLocaleString()} - {Math.max(...data.dailyStats.map(d => d.unique_games)).toLocaleString()}
           </p>
         </Card>
         
         <Card className="p-6">
           <h4 className="text-sm font-medium text-muted-foreground">Growth Rate</h4>
-          <p className="text-2xl font-bold mt-2">{data.stats.growthRate}%</p>
+          <p className="text-2xl font-bold mt-2">{data.periodStats.find(s => s.content_type === 'all')?.growth_rate || 0}%</p>
           <p className="text-sm text-muted-foreground mt-1">vs previous period</p>
         </Card>
 
         <Card className="p-6">
           <h4 className="text-sm font-medium text-muted-foreground">Most Active Day</h4>
-          <p className="text-2xl font-bold mt-2">{new Date(data.peakStats.most_active_day).toLocaleDateString()}</p>
+          <p className="text-2xl font-bold mt-2">
+            {data.dailyStats.length > 0 ? new Date(
+              data.dailyStats.reduce((max, day) => 
+                day.total_downloads > max.total_downloads ? day : max
+              ).date
+            ).toLocaleDateString() : 'No data'}
+          </p>
           <p className="text-sm text-muted-foreground mt-1">
-            {data.peakStats.most_active_day_downloads.toLocaleString()} downloads
+            {Math.max(...data.dailyStats.map(d => d.total_downloads)).toLocaleString()} downloads
           </p>
         </Card>
 
         <Card className="p-6">
           <h4 className="text-sm font-medium text-muted-foreground">Unique Games</h4>
-          <p className="text-2xl font-bold mt-2">{data.gameStats.total_unique_games.toLocaleString()}</p>
+          <p className="text-2xl font-bold mt-2">{data.gameTypeStats.unique_base_games.toLocaleString()}</p>
           <p className="text-sm text-muted-foreground mt-1">
-            Active in selected period
+            {data.periodStats.find(s => s.content_type === 'all')?.unique_items.toLocaleString()} active in period
           </p>
         </Card>
 
         <Card className="p-6">
           <h4 className="text-sm font-medium text-muted-foreground">Average Game Size</h4>
-          <p className="text-2xl font-bold mt-2">{data.gameStats.average_game_size}</p>
-          <p className="text-sm text-muted-foreground mt-1">
-            Per download
+          <p className="text-2xl font-bold mt-2">{formatFileSize(data.periodStats.find(s => s.content_type === 'all')?.data_transferred || 0)}</p>
+          <p className="text-sm text-muted-foreground mt-1">per period
           </p>
         </Card>
       </div>
@@ -408,10 +435,10 @@ export function AnalyticsCharts({
         <div className="h-[400px]">
           <Bar
             data={{
-              labels: data.weeklyStats.map((d: WeeklyStats) => d.day),
+              labels: data.weeklyDistribution.map(d => d.day),
               datasets: [{
                 label: 'Average Downloads',
-                data: data.weeklyStats.map((d: WeeklyStats) => d.average_downloads),
+                data: data.weeklyDistribution.map(d => d.average_downloads),
                 backgroundColor: 'rgba(167, 139, 250, 0.8)',
               }],
             }}
@@ -427,5 +454,5 @@ export function AnalyticsCharts({
         </div>
       </Card>
     </div>
-  );
+  ) : null;
 }

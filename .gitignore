@@ -41,3 +41,4 @@ next-env.d.ts
 public/games.db
 public/games.db-shm
 public/games.db-wal
+public/analytics-cache.gz
