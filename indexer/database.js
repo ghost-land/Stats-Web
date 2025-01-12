@@ -1,12 +1,9 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 
-// Database configuration
-const DB_PATH = path.join(process.cwd(), 'public', 'games.db');
-
-function getDatabase() {
+function getDatabase(dbPath) {
   try {
-    const db = new Database(DB_PATH);
+    const db = new Database(dbPath);
     
     // Enable optimizations
     db.pragma('journal_mode = WAL');
@@ -38,6 +35,5 @@ function getDatabase() {
 }
 
 module.exports = {
-  DB_PATH,
   getDatabase
 };

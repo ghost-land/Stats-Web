@@ -1,12 +1,12 @@
-const { DB_PATH, getDatabase } = require('./database');
+const { getDatabase } = require('./database');
 const fsPromises = require('fs').promises;
 const path = require('path');
 
-async function initializeDatabase() {
+async function initializeDatabase(dbPath) {
   // Ensure public directory exists
-  await fsPromises.mkdir(path.dirname(DB_PATH), { recursive: true });
+  await fsPromises.mkdir(path.dirname(dbPath), { recursive: true });
   
-  const db = getDatabase();
+  const db = getDatabase(dbPath);
   
   // Drop existing rankings tables to recreate with new schema
   const dropStatements = [

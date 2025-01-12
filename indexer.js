@@ -1,9 +1,10 @@
 const fs = require('fs').promises;
 const path = require('path');
+const { rename } = require('fs').promises;
 
 // Import modules
 const { BATCH_SIZES, PERIODS, CONTENT_TYPES } = require('./indexer/constants');
-const { DB_PATH, getDatabase } = require('./indexer/database');
+const { getDatabase } = require('./indexer/database');
 const { initializeDatabase } = require('./indexer/schema');
 const { fetchGameInfo } = require('./indexer/gameInfo');
 const { processBatch } = require('./indexer/processors/batch');
@@ -12,7 +13,9 @@ const { calculatePeriodRankings } = require('./indexer/processors/rankings');
 const { calculateHomePageRankings } = require('./indexer/processors/homePageRankings');
 
 // Configuration
-const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
+const DATA_DIR = process.env.NODE_ENV === 'production' ? '/mnt/data' : path.join(process.cwd(), 'data');
+const DB_PATH = path.join(process.cwd(), 'public', 'games.db');
+const TEMP_DB_PATH = path.join(process.cwd(), 'public', 'games.db_temp');
 
 async function indexGames() {
   console.log('🚀 Starting indexing process...');
@@ -20,7 +23,8 @@ async function indexGames() {
   
   let db;
   try {
-    db = await initializeDatabase();
+    // Initialize temporary database
+    db = await initializeDatabase(TEMP_DB_PATH);
     
     // Get list of files and game info in parallel
     const [files, gameInfo] = await Promise.all([
@@ -62,13 +66,40 @@ async function indexGames() {
     const totalDuration = ((performance.now() - startTime) / 1000).toFixed(2);
     console.log(`\n🎉 Indexing completed in ${totalDuration}s`);
 
-  } catch (error) {
-    console.error('❌ Error during indexing:', error);
-    process.exit(1);
-  } finally {
+    // Close database connection
     if (db) {
       db.close();
+      db = null;
     }
+
+    // Replace old database with new one
+    try {
+      // Wait a bit to ensure connections are closed
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Remove old database if it exists
+      await fs.unlink(DB_PATH).catch(() => {});
+      
+      // Wait a bit more
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Rename temp database to final name
+      await rename(TEMP_DB_PATH, DB_PATH);
+      console.log('✅ Database updated successfully');
+    } catch (error) {
+      console.error('❌ Error replacing database:', error);
+      // Try to clean up temp database
+      await fs.unlink(TEMP_DB_PATH).catch(() => {});
+      process.exit(1);
+    }
+
+  } catch (error) {
+    console.error('❌ Error during indexing:', error);
+    // Clean up temp database on error
+    try {
+      await fs.unlink(TEMP_DB_PATH).catch(() => {});
+    } catch {}
+    process.exit(1);
   }
 }
 

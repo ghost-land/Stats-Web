@@ -15,7 +15,8 @@ module.exports = {
         NEXT_PUBLIC_API_URL: 'http://localhost:3000',
         NEXT_PUBLIC_WORKING_JSON_URL: 'https://raw.githubusercontent.com/ghost-land/NX-Missing/refs/heads/main/data/working.json',
         NEXT_PUBLIC_TITLES_DB_URL: 'https://raw.githubusercontent.com/ghost-land/NX-Missing/refs/heads/main/data/titles_db.txt',
-        REINDEX_INTERVAL: '3600000'
+        REINDEX_INTERVAL: '3600000',
+        DATA_DIR: '/mnt/data'
       },
       instances: 1,
       exec_mode: 'cluster',
@@ -49,27 +50,26 @@ module.exports = {
       pid: 'logs/game-stats-web.pid',
       timestamp: true
     }
-    // Indexer configuration commented out
-    // {
-    //   name: 'game-stats-indexer',
-    //   script: './indexer.js',
-    //   env: {
-    //     NODE_ENV: 'production',
-    //     DATA_DIR: '/path/to/your/data/directory', // Update this path
-    //     NEXT_PUBLIC_API_URL: 'http://localhost:3000',
-    //     NEXT_PUBLIC_WORKING_JSON_URL: 'https://raw.githubusercontent.com/ghost-land/NX-Missing/refs/heads/main/data/working.json',
-    //     NEXT_PUBLIC_TITLES_DB_URL: 'https://raw.githubusercontent.com/ghost-land/NX-Missing/refs/heads/main/data/titles_db.txt'
-    //   },
-    //   instances: 1,
-    //   exec_mode: 'fork',
-    //   cron_restart: '0 */1 * * *', // Restart every hour
-    //   watch: false,
-    //   time: true,
-    //   log_date_format: 'YYYY-MM-DD HH:mm:ss',
-    //   error_file: 'logs/game-stats-indexer-error.log',
-    //   out_file: 'logs/game-stats-indexer-out.log',
-    //   merge_logs: true,
-    //   autorestart: true
-    // }
+    ,{
+      name: 'game-stats-indexer',
+      script: './indexer.js',
+      env: {
+        NODE_ENV: 'production',
+        DATA_DIR: '/mnt/data',
+        NEXT_PUBLIC_API_URL: 'http://localhost:3000',
+        NEXT_PUBLIC_WORKING_JSON_URL: 'https://raw.githubusercontent.com/ghost-land/NX-Missing/refs/heads/main/data/working.json',
+        NEXT_PUBLIC_TITLES_DB_URL: 'https://raw.githubusercontent.com/ghost-land/NX-Missing/refs/heads/main/data/titles_db.txt'
+      },
+      instances: 1,
+      exec_mode: 'fork',
+      cron_restart: '0 */1 * * *',
+      watch: false,
+      time: true,
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      error_file: 'logs/game-stats-indexer-error.log',
+      out_file: 'logs/game-stats-indexer-out.log',
+      merge_logs: true,
+      autorestart: true
+    }
   ]
 };
